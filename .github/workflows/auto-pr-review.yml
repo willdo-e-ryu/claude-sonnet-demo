@@ -12,6 +12,9 @@ permissions:
   pull-requests: write
   issues: write
   repository-projects: read
+  actions: read
+  checks: read
+  statuses: read
 
 jobs:
   auto-pr-and-review:
@@ -116,31 +119,23 @@ jobs:
     - name: Create Pull Request
       if: steps.check_pr.outputs.exists == 'false'
       id: create_pr
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
-        BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
-        PR_TITLE="${{ steps.branch_info.outputs.pr_title }}"
-        
-        PR_URL=$(gh pr create \
-          --title "$PR_TITLE" \
-          --body-file "${{ steps.commit_summary.outputs.body_file }}" \
-          --base "$BASE_BRANCH" \
-          --head "$BRANCH_NAME" \
-          --draft)
-        
-        PR_NUMBER=$(echo "$PR_URL" | sed 's|.*/||')
-        
-        echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-        echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-        echo "新しいPR #$PR_NUMBER を作成しました: $PR_URL"
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "Auto-generated PR from ${{ steps.branch_info.outputs.branch_name }}"
+        title: "${{ steps.branch_info.outputs.pr_title }}"
+        body-path: "${{ steps.commit_summary.outputs.body_file }}"
+        base: ${{ steps.branch_info.outputs.base_branch }}
+        branch: ${{ steps.branch_info.outputs.branch_name }}
+        draft: false
+        delete-branch: false
     
     - name: Add labels to PR
+      if: steps.create_pr.outputs.pull-request-number != ''
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
+        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
         BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
         
         # ブランチ名に基づいてラベルを設定
@@ -159,10 +154,11 @@ jobs:
         gh pr edit "$PR_NUMBER" --add-label "$LABELS" || echo "ラベル追加をスキップしました"
     
     - name: Request Copilot Code Review
+      if: steps.create_pr.outputs.pull-request-number != ''
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
+        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
         
         # GitHub Copilot による自動レビューコメント
         cat > copilot_review.md << 'EOF'
@@ -206,7 +202,12 @@ jobs:
       id: code_analysis
       continue-on-error: true
       run: |
-        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
+        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        
+        if [ -z "$PR_NUMBER" ]; then
+          echo "PR番号が取得できませんでした。スキップします。"
+          exit 0
+        fi
         
         # 変更されたJSファイルをチェック
         CHANGED_JS_FILES=$(git diff --name-only origin/${{ steps.branch_info.outputs.base_branch }}..HEAD | grep '\.js$' || true)
@@ -242,21 +243,20 @@ jobs:
         fi
     
     - name: Update PR status
+      if: steps.create_pr.outputs.pull-request-number != ''
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
-        
-        # PRをdraftから通常状態に変更（必要に応じて）
-        gh pr ready "$PR_NUMBER" || echo "PR状態の変更をスキップしました"
+        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
         
         echo "✅ PR #$PR_NUMBER の自動セットアップが完了しました"
     
     - name: Notify in PR
+      if: steps.create_pr.outputs.pull-request-number != ''
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
+        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
         
         cat > final_notification.md << 'EOF'
         ## 🎉 自動PR作成完了！
