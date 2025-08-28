@@ -1,11 +1,15 @@
 /**
- * ゲーム設定定数
- * 全ての重要な数値パラメータを集約
+ * Flappy Bird Clone - 設定定数
+ * ゲーム全体で使用される定数や設定値
+ * v1.1.0 - ゲーム統計システム対応
  */
 export const CONFIG = {
-    // キャンバス設定
-    CANVAS_WIDTH: 480,
-    CANVAS_HEIGHT: 640,
+    // バージョン情報
+    VERSION: '1.1.0',
+    
+    // キャンバスサイズ
+    CANVAS_WIDTH: 400,
+    CANVAS_HEIGHT: 600,
     
     // 鳥の設定
     BIRD: {
