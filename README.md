@@ -125,26 +125,36 @@ docker compose -f docker-compose.prod.yml up -d
 
 ### 🤖 自動PR作成の使い方
 
-1. **ブランチを作成**:
+**Option 1: 自動ワークフロー（権限設定が必要）**
+
+1. **GitHubリポジトリ設定**:
+   ```
+   Settings → Actions → General → Workflow permissions
+   → ☑️ "Read and write permissions"  
+   → ☑️ "Allow GitHub Actions to create and approve pull requests"
+   ```
+
+2. **ブランチ作成・プッシュ**:
    ```bash
    git checkout -b feature/new-awesome-feature
-   # または
-   git checkout -b fix/critical-bug
-   ```
-
-2. **変更をコミット**:
-   ```bash
-   git add .
-   git commit -m "feat: 新機能を追加"
+   # 変更・コミット
    git push origin feature/new-awesome-feature
+   # → 自動でPR作成！
    ```
 
-3. **自動処理が実行される**:
-   - ✅ Pull Requestが自動作成
-   - ✅ 適切なラベルが付与
-   - ✅ GitHub Copilotによる詳細レビュー実行
-   - ✅ コード品質・セキュリティ分析
-   - ✅ 改善提案の生成
+**Option 2: 簡易スクリプト（即座に利用可能）**
+
+```bash
+# 1. ブランチで作業
+git checkout -b feature/my-feature
+# コードを変更...
+git add . && git commit -m "feat: 新機能追加"
+
+# 2. PR作成スクリプト実行
+./scripts/create-pr.sh
+
+# 3. 自動でPRが作成され、Copilotレビューが実行される
+```
 
 ### 必要なSecrets設定
 ```yaml

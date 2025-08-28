@@ -8,24 +8,42 @@ pull request create failed: GraphQL: GitHub Actions is not permitted to create o
 
 ## 解決方法
 
-### 1. リポジトリ設定の変更
+### 🔑 必須: GitHubリポジトリ権限設定
 
-GitHubリポジトリの設定を以下の手順で変更してください：
+**以下の設定を必ず変更してください:**
 
-1. **リポジトリにアクセス**
+1. **リポジトリにアクセス**:
    - https://github.com/willdo-e-ryu/claude-sonnet-demo
 
-2. **Settings タブをクリック**
+2. **Settings タブ → Actions → General**
 
-3. **Actions → General に移動**
+3. **Workflow permissions** セクション:
+   ```
+   ○ Read and write permissions
+   ☑️ Allow GitHub Actions to create and approve pull requests
+   ```
 
-4. **Workflow permissions セクション**で以下を選択：
-   - ☑️ **Read and write permissions**
-   - ☑️ **Allow GitHub Actions to create and approve pull requests**
+4. **Save** をクリック
 
-5. **Save** をクリック
+### ⚡ 即座に有効な代替方法
 
-### 2. 代替解決策
+権限設定ができない場合は、以下のManual PR方式を使用：
+
+```bash
+# 1. ブランチ作成・変更
+git checkout -b feature/new-feature
+# コードを変更...
+git add . && git commit -m "feat: 新機能追加"
+git push origin feature/new-feature
+
+# 2. GitHub CLI でPR作成（手動）
+gh pr create --title "feat: 新機能追加" --body "新機能の説明"
+
+# 3. 自動レビュー実行
+# →このタイミングでCopilotレビューが自動実行される
+```
+
+### 🔧 トラブルシューティング優先順位
 
 上記設定が変更できない場合は、以下のワークフローを使用：
 

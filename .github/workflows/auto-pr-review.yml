@@ -55,7 +55,7 @@ jobs:
         BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
         
         # 既存のPRをチェック
-        PR_NUMBER=$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --json number --jq '.[0].number // empty')
+        PR_NUMBER=$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --json number --jq '.[0].number // empty' || echo "")
         
         if [ -n "$PR_NUMBER" ]; then
           echo "exists=true" >> $GITHUB_OUTPUT
@@ -126,13 +126,15 @@ jobs:
       uses: peter-evans/create-pull-request@v5
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: "Auto-generated PR from ${{ steps.branch_info.outputs.branch_name }}"
         title: "${{ steps.branch_info.outputs.pr_title }}"
         body-path: "${{ steps.commit_summary.outputs.body_file }}"
         base: ${{ steps.branch_info.outputs.base_branch }}
         branch: ${{ steps.branch_info.outputs.branch_name }}
         draft: false
         delete-branch: false
+        labels: |
+          auto-generated
+          needs-review
     
     - name: Add labels to PR
       if: steps.create_pr.outputs.pull-request-number != ''
@@ -142,20 +144,22 @@ jobs:
         PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
         BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
         
-        # ブランチ名に基づいてラベルを設定
-        LABELS="auto-generated"
+        # 追加のブランチ固有ラベル
+        ADDITIONAL_LABELS=""
         
         if [[ "$BRANCH_NAME" == feature/* ]]; then
-          LABELS="$LABELS,enhancement"
+          ADDITIONAL_LABELS="enhancement"
         elif [[ "$BRANCH_NAME" == fix/* ]] || [[ "$BRANCH_NAME" == bugfix/* ]]; then
-          LABELS="$LABELS,bug"
+          ADDITIONAL_LABELS="bug"
         elif [[ "$BRANCH_NAME" == hotfix/* ]]; then
-          LABELS="$LABELS,hotfix,priority-high"
+          ADDITIONAL_LABELS="hotfix,priority-high"
         elif [[ "$BRANCH_NAME" == docs/* ]]; then
-          LABELS="$LABELS,documentation"
+          ADDITIONAL_LABELS="documentation"
         fi
         
-        gh pr edit "$PR_NUMBER" --add-label "$LABELS" || echo "ラベル追加をスキップしました"
+        if [ -n "$ADDITIONAL_LABELS" ]; then
+          gh pr edit "$PR_NUMBER" --add-label "$ADDITIONAL_LABELS" || echo "追加ラベル設定をスキップしました"
+        fi
     
     - name: Request Copilot Code Review
       if: steps.create_pr.outputs.pull-request-number != ''
