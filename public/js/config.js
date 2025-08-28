@@ -1,12 +1,9 @@
 /**
  * Flappy Bird Clone - 設定定数
  * ゲーム全体で使用される定数や設定値
- * v1.1.0 - ゲーム統計システム対応
  */
+
 export const CONFIG = {
-    // バージョン情報
-    VERSION: '1.1.0',
-    
     // キャンバスサイズ
     CANVAS_WIDTH: 400,
     CANVAS_HEIGHT: 600,
@@ -69,4 +66,3 @@ export const CONFIG = {
         PAUSED: 'PAUSED'
     }
 };
-// Test auto PR creation system - Thu Aug 28 06:51:43 PM JST 2025
