@@ -60,7 +60,7 @@ git push origin test/auto-pr-fix
 ### 5. 追加の推奨設定
 
 **Branch protection rules:**
-- `main` ブランチの直接pushを制限
+- `master` ブランチの直接pushを制限
 - PR レビュー必須に設定
 - Status checks 必須に設定
 

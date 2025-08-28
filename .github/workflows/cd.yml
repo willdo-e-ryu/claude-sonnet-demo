@@ -2,7 +2,7 @@ name: CD - Deploy to Production
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
     tags: [ 'v*' ]
 
 env:
@@ -54,7 +54,7 @@ jobs:
         cache-to: type=gha,mode=max
     
     - name: Deploy to production server
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.SSH_HOST }}
@@ -69,12 +69,12 @@ jobs:
           if [ ! -f "${{ secrets.DEPLOY_DIR }}/docker-compose.prod.yml" ]; then
             echo "Downloading docker-compose.prod.yml..."
             curl -o ${{ secrets.DEPLOY_DIR }}/docker-compose.prod.yml \
-              https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.prod.yml
+              https://raw.githubusercontent.com/${{ github.repository }}/master/docker-compose.prod.yml
           fi
           
           # deploy.sh をアップロード
           curl -o ${{ secrets.DEPLOY_DIR }}/deploy.sh \
-            https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/deploy.sh
+            https://raw.githubusercontent.com/${{ github.repository }}/master/scripts/deploy.sh
           chmod +x ${{ secrets.DEPLOY_DIR }}/deploy.sh
           
           # 環境変数を設定してデプロイ実行

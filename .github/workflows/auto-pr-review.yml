@@ -4,6 +4,7 @@ on:
   push:
     branches-ignore:
       - main
+      - master
       - develop
   # feature/fix/などのブランチにプッシュされた時に実行
 
@@ -19,7 +20,7 @@ permissions:
 jobs:
   auto-pr-and-review:
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop'
+    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/develop'
     
     steps:
     - name: Checkout code
@@ -31,10 +32,13 @@ jobs:
       id: branch_info
       run: |
         BRANCH_NAME=${GITHUB_REF#refs/heads/}
-        BASE_BRANCH="develop"
+        BASE_BRANCH="master"
         
-        # mainブランチが存在しない場合の対応
-        if ! git show-ref --verify --quiet refs/remotes/origin/develop; then
+        # developブランチが存在する場合はそちらを優先
+        if git show-ref --verify --quiet refs/remotes/origin/develop; then
+          BASE_BRANCH="develop"
+        # mainブランチが存在する場合
+        elif git show-ref --verify --quiet refs/remotes/origin/main; then
           BASE_BRANCH="main"
         fi
         
