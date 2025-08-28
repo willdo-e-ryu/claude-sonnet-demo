@@ -106,7 +106,16 @@ export function updateDebugInfo(debugData) {
         `Pipes: ${debugData.pipeCount || 0}`
     ];
     
-    debugElement.innerHTML = lines.join('<br>');
+    // セキュリティのためinnerHTMLの代わりに安全なDOM操作を使用
+    debugElement.textContent = '';
+    lines.forEach((line, index) => {
+        const span = document.createElement('span');
+        span.textContent = line;
+        debugElement.appendChild(span);
+        if (index < lines.length - 1) {
+            debugElement.appendChild(document.createElement('br'));
+        }
+    });
 }
 
 /**

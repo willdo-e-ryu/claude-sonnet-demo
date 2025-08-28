@@ -19,65 +19,30 @@ jobs:
       with:
         node-version: '18'
     
-    - name: Install dependencies (if package.json exists)
+    - name: Install dependencies
       run: |
-        if [ -f package.json ]; then
-          npm ci
-          npm run lint || echo "No lint script found"
-        else
-          echo "No package.json found, skipping npm steps"
-        fi
-    
-    - name: Advanced JavaScript Analysis
+        npm ci
+        
+    - name: Run JavaScript Lint
       run: |
-        echo "## 📊 詳細コード分析結果" > analysis_report.txt
-        echo "" >> analysis_report.txt
-        
-        # JavaScriptファイルの詳細分析
-        find public/js -name "*.js" | while read file; do
-          echo "### 🔍 分析中: $file" >> analysis_report.txt
-          
-          # 構文チェック
-          if node -c "$file" 2>/dev/null; then
-            echo "✅ 構文チェック: OK" >> analysis_report.txt
-          else
-            echo "❌ 構文エラーが検出されました" >> analysis_report.txt
-            node -c "$file" >> analysis_report.txt 2>&1
-          fi
-          
-          # コード品質メトリクス
-          LINES=$(wc -l < "$file")
-          FUNCTIONS=$(grep -c "function\|=>\|class " "$file" || echo "0")
-          COMMENTS=$(grep -c "//\|/\*\|\*/" "$file" || echo "0")
-          
-          echo "📈 メトリクス:" >> analysis_report.txt
-          echo "  - 行数: $LINES" >> analysis_report.txt
-          echo "  - 関数数: $FUNCTIONS" >> analysis_report.txt
-          echo "  - コメント数: $COMMENTS" >> analysis_report.txt
-          
-          # セキュリティチェック
-          if grep -q "innerHTML\|eval\|document.write" "$file"; then
-            echo "⚠️ セキュリティ注意: 潜在的に危険な関数が検出されました" >> analysis_report.txt
-          fi
-          
-          echo "" >> analysis_report.txt
-        done
-        
-        cat analysis_report.txt
+        npm run lint
     
+    - name: Run Tests
+      run: |
+        npm run test
+        
     - name: Validate HTML and CSS
       run: |
         echo "🔍 HTML/CSS検証を実行中..."
         
-        # HTMLファイルの基本構文チェック
-        find public -name "*.html" -exec echo "Checking {}" \; -exec htmlhint {} \; || true
+        # HTMLファイルの基本構文チェック（HTMLHintを使用）
+        npx htmlhint public/*.html || echo "HTMLHint warnings detected"
         
-        # CSSファイルの検証
+        # CSSファイルの基本検証
         find public -name "*.css" | while read file; do
           echo "CSS検証: $file"
-          # 基本的なCSS構文チェック（簡易版）
-          if ! grep -q "}" "$file"; then
-            echo "⚠️ CSS構文に問題がある可能性があります: $file"
+          if [ -f "$file" ]; then
+            echo "✅ $file exists"
           fi
         done
     

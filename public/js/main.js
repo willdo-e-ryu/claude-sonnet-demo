@@ -410,11 +410,21 @@ function initializeGame() {
             z-index: 10000;
             font-family: Arial, sans-serif;
         `;
-        errorMessage.innerHTML = `
-            <h3>ゲームの読み込みに失敗しました</h3>
-            <p>${error.message}</p>
-            <p>ページを再読み込みしてください</p>
-        `;
+        
+        // セキュリティのためinnerHTMLの代わりに安全なDOM操作を使用
+        const title = document.createElement('h3');
+        title.textContent = 'ゲームの読み込みに失敗しました';
+        
+        const errorParagraph = document.createElement('p');
+        errorParagraph.textContent = error.message;
+        
+        const instructionParagraph = document.createElement('p');
+        instructionParagraph.textContent = 'ページを再読み込みしてください';
+        
+        errorMessage.appendChild(title);
+        errorMessage.appendChild(errorParagraph);
+        errorMessage.appendChild(instructionParagraph);
+        
         document.body.appendChild(errorMessage);
     }
 }
