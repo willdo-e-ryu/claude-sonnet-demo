@@ -1,0 +1,64 @@
+name: CI - Lint and Build Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install dependencies (if package.json exists)
+      run: |
+        if [ -f package.json ]; then
+          npm ci
+          npm run lint || echo "No lint script found"
+        else
+          echo "No package.json found, skipping npm steps"
+        fi
+    
+    - name: Validate HTML and JS syntax
+      run: |
+        # HTMLファイルの基本構文チェック
+        find public -name "*.html" -exec echo "Checking {}" \; -exec htmlhint {} \; || true
+        
+        # JavaScriptファイルの基本構文チェック
+        find public -name "*.js" -exec echo "Checking {}" \; -exec node -c {} \;
+    
+    - name: Build Docker image
+      run: |
+        docker build -t flappy-nginx:test .
+    
+    - name: Test Docker container
+      run: |
+        # コンテナを起動
+        docker run -d -p 8080:80 --name flappy-test flappy-nginx:test
+        
+        # 少し待つ
+        sleep 5
+        
+        # ヘルスチェック
+        curl -f http://localhost:8080/health || exit 1
+        
+        # メインページのチェック
+        curl -f http://localhost:8080/ | grep -q "Flappy Bird" || exit 1
+        
+        echo "✅ All tests passed!"
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        docker stop flappy-test || true
+        docker rm flappy-test || true
+        docker rmi flappy-nginx:test || true

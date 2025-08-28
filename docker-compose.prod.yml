@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  flappy-nginx:
+    image: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+    ports:
+      - "8080:80"
+    container_name: flappy-nginx-prod
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production

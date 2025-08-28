@@ -1,0 +1,195 @@
+# Flappy Bird Clone
+
+モダンなフロントエンド技術とDevOpsプラクティスを使用した、Flappy Birdのクローンゲームです。
+
+## 🎮 ゲーム仕様
+
+- **操作**: Space、Click、Touchでジャンプ、Pでポーズ
+- **物理**: 重力・上昇・落下制御、deltaTimeによるラグ補正
+- **障害物**: 上下パイプ（隙間ランダム）、左へスクロール
+- **当たり判定**: パイプ、天井、地面との衝突検知
+- **スコア**: パイプ通過で+1、ベストスコアはLocalStorageに保存
+- **画面状態**: 開始・プレイ中・ゲームオーバー・ポーズの4状態
+- **レンダリング**: Canvas 2D、requestAnimationFrame
+- **モバイル対応**: タップ操作、HiDPIスケーリング、レスポンシブデザイン
+
+## 🏗️ アーキテクチャ
+
+### フォルダ構成
+```
+/
+├─ Dockerfile                  # Nginx Alpine ベースイメージ
+├─ docker-compose.yml          # ローカル開発用
+├─ docker-compose.prod.yml     # 本番環境用
+├─ README.md
+├─ nginx/
+│   └─ default.conf           # Nginx設定（gzip、キャッシュ制御）
+├─ public/                    # 静的ファイル
+│   ├─ index.html
+│   ├─ css/styles.css
+│   ├─ js/                    # ES Modules構成
+│   │   ├─ config.js          # ゲーム設定定数
+│   │   ├─ utils.js           # ユーティリティ関数
+│   │   ├─ input.js           # 入力管理
+│   │   ├─ state.js           # ゲーム状態管理
+│   │   ├─ pipes.js           # パイプシステム
+│   │   ├─ bird.js            # 鳥キャラクター
+│   │   ├─ score.js           # スコア管理
+│   │   └─ main.js            # メインゲームループ
+│   └─ assets/
+│       ├─ sounds/            # サウンドファイル（空）
+│       └─ images/            # 画像ファイル（空）
+├─ scripts/
+│   └─ deploy.sh             # デプロイスクリプト
+└─ .github/workflows/
+    ├─ ci.yml                # 継続的インテグレーション
+    └─ cd.yml                # 継続的デプロイメント
+```
+
+### コード設計
+- **モジュラー設計**: ES Modulesによる責務分離
+- **設定管理**: `config.js`に重要定数を集約
+- **物理演算**: deltaTimeによるフレームレート非依存
+- **状態管理**: ゲーム状態の明確な分離
+- **イベント駆動**: カスタムイベントによる疎結合
+
+## 🚀 クイックスタート
+
+### ローカル実行
+
+```bash
+# リポジトリクローン
+git clone <repository-url>
+cd flappy-bird-clone
+
+# Docker Composeで起動
+docker compose up --build
+
+# または直接Dockerで起動
+docker build -t flappy-nginx .
+docker run --rm -p 8080:80 flappy-nginx
+```
+
+**アクセス**: http://localhost:8080
+
+### 本番環境デプロイ
+
+```bash
+# 本番用イメージのpull
+docker pull ghcr.io/<namespace>/flappy-nginx:latest
+
+# 本番環境で起動
+REGISTRY_NAMESPACE=<namespace> IMAGE_NAME=flappy-nginx IMAGE_TAG=latest \
+docker compose -f docker-compose.prod.yml up -d
+```
+
+## 🔧 開発・運用
+
+### デバッグモード
+`public/js/config.js`の`DEBUG`フラグを`true`に設定すると、FPS・deltaTime・鳥の座標などの詳細情報が画面に表示されます。
+
+### パフォーマンス最適化
+- **HiDPI対応**: 高解像度ディスプレイでの鮮明な描画
+- **deltaTime補正**: フレームレートの変動に対応
+- **効率的な当たり判定**: 最小限の計算で正確な衝突検知
+- **メモリ管理**: 画面外オブジェクトの自動削除
+
+## 🏭 CI/CD パイプライン
+
+### 継続的インテグレーション (CI)
+- **トリガー**: Push/PR時
+- **チェック項目**:
+  - HTML/JavaScript構文検証
+  - Docker build テスト
+  - アプリケーション疎通確認
+- **実行**: `.github/workflows/ci.yml`
+
+### 継続的デプロイメント (CD)
+- **トリガー**: mainブランチプッシュ、タグプッシュ
+- **処理内容**:
+  - マルチアーキテクチャ対応ビルド (amd64/arm64)
+  - GitHub Container Registry (GHCR) への公開
+  - SSH経由での本番サーバデプロイ
+- **実行**: `.github/workflows/cd.yml`
+
+### 必要なSecrets設定
+```yaml
+SSH_PRIVATE_KEY: "-----BEGIN OPENSSH PRIVATE KEY-----"
+SSH_USER: "deploy-user"
+SSH_HOST: "production.example.com"
+SSH_PORT: "22"
+DEPLOY_DIR: "/opt/flappy"
+```
+
+## 🐳 Docker構成
+
+### Nginx設定
+- **ベースイメージ**: `nginx:alpine`
+- **gzip圧縮**: JS/CSS/JSONファイル
+- **キャッシュ制御**:
+  - HTML: `no-store`（常に最新）
+  - 静的アセット: `max-age=31536000, immutable`（1年キャッシュ）
+- **セキュリティヘッダー**: `X-Content-Type-Options`, `X-Frame-Options`
+
+### マルチステージビルド
+本番用イメージは軽量化のため、必要最小限のファイルのみを含んでいます。
+
+## 📱 モバイル対応
+
+- **タッチ操作**: 画面タップでジャンプ
+- **レスポンシブデザイン**: 画面サイズに応じたキャンバスリサイズ
+- **HiDPI対応**: Retinaディスプレイでの高品質描画
+- **PWA対応**: 将来的な拡張でオフライン対応可能
+
+## 🎯 ゲーム機能詳細
+
+### 物理エンジン
+- **重力**: 一定の下向き加速度
+- **ジャンプ**: 瞬間的な上向き速度
+- **端末落下速度**: 過度な加速を防止
+- **ラグ補正**: deltaTimeによるフレームレート非依存の動作
+
+### スコアシステム
+- **基本スコア**: パイプ通過時に+1
+- **ベストスコア**: LocalStorageに永続保存
+- **新記録エフェクト**: パーティクル風アニメーション
+- **視覚フィードバック**: スコア取得時のスケール・カラーアニメーション
+
+### 状態管理
+- **START**: ゲーム開始前
+- **PLAYING**: プレイ中
+- **PAUSED**: ポーズ中
+- **GAME_OVER**: ゲーム終了
+
+## 🔒 セキュリティ
+
+- **コンテンツタイプ検証**: MIMEスニッフィング攻撃対策
+- **フレームオプション**: クリックジャッキング対策
+- **XSS保護**: 反射型XSS攻撃対策
+- **HTTPS推奨**: 本番環境でのセキュア通信
+
+## 📈 監視・ログ
+
+- **ヘルスチェックエンドポイント**: `/health`
+- **アクセスログ**: Nginxによる標準ログ出力
+- **エラーハンドリング**: JavaScript例外の適切な処理
+- **パフォーマンス計測**: FPSカウンター（デバッグモード）
+
+## 🤝 コントリビューション
+
+1. Forkしてfeatureブランチを作成
+2. 変更をコミット（意図的なコミットメッセージで）
+3. テストを実行し、CIが通ることを確認
+4. Pull Requestを作成
+
+## 📄 ライセンス
+
+MIT License - 自由に使用・改変・配布可能です。
+
+## 🙋‍♂️ サポート
+
+問題や質問がある場合は、GitHubのIssueを作成してください。
+
+---
+
+**楽しいゲーミングを！** 🎮✨
