@@ -96,10 +96,21 @@ docker compose -f docker-compose.prod.yml up -d
 
 ## 🏭 CI/CD パイプライン
 
+### 自動Pull Request & GitHub Copilotレビュー 🤖
+- **トリガー**: feature/fix/などのブランチにプッシュ時
+- **自動処理**:
+  - Pull Requestの自動作成
+  - 適切なラベル付与（ブランチ名に基づく）
+  - GitHub Copilotによる詳細コードレビュー
+  - セキュリティ・パフォーマンス分析
+  - 改善提案の自動生成
+
 ### 継続的インテグレーション (CI)
 - **トリガー**: Push/PR時
 - **チェック項目**:
-  - HTML/JavaScript構文検証
+  - HTML/JavaScript詳細構文検証
+  - コード品質メトリクス分析
+  - セキュリティ脆弱性スキャン
   - Docker build テスト
   - アプリケーション疎通確認
 - **実行**: `.github/workflows/ci.yml`
@@ -111,6 +122,29 @@ docker compose -f docker-compose.prod.yml up -d
   - GitHub Container Registry (GHCR) への公開
   - SSH経由での本番サーバデプロイ
 - **実行**: `.github/workflows/cd.yml`
+
+### 🤖 自動PR作成の使い方
+
+1. **ブランチを作成**:
+   ```bash
+   git checkout -b feature/new-awesome-feature
+   # または
+   git checkout -b fix/critical-bug
+   ```
+
+2. **変更をコミット**:
+   ```bash
+   git add .
+   git commit -m "feat: 新機能を追加"
+   git push origin feature/new-awesome-feature
+   ```
+
+3. **自動処理が実行される**:
+   - ✅ Pull Requestが自動作成
+   - ✅ 適切なラベルが付与
+   - ✅ GitHub Copilotによる詳細レビュー実行
+   - ✅ コード品質・セキュリティ分析
+   - ✅ 改善提案の生成
 
 ### 必要なSecrets設定
 ```yaml

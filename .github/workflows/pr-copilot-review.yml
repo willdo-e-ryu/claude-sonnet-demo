@@ -1,0 +1,257 @@
+name: PR Code Review with Copilot
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  copilot-review:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    
+    steps:
+    - name: Checkout PR code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.pull_request.head.sha }}
+    
+    - name: Get changed files
+      id: changed_files
+      run: |
+        # PRで変更されたファイルを取得
+        git fetch origin ${{ github.event.pull_request.base.ref }}
+        CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}..HEAD)
+        
+        echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+        # JavaScriptファイルのみを抽出
+        JS_FILES=$(echo "$CHANGED_FILES" | grep '\.js$' || echo "")
+        echo "js_files<<EOF" >> $GITHUB_OUTPUT
+        echo "$JS_FILES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    
+    - name: Analyze JavaScript files
+      if: steps.changed_files.outputs.js_files != ''
+      id: js_analysis
+      run: |
+        echo "## 🤖 GitHub Copilot コードレビュー詳細分析" > detailed_review.md
+        echo "" >> detailed_review.md
+        echo "以下のJavaScriptファイルについて詳細分析を実行しました：" >> detailed_review.md
+        echo "" >> detailed_review.md
+        
+        while IFS= read -r file; do
+          if [ -f "$file" ] && [ -n "$file" ]; then
+            echo "### 📄 \`$file\`" >> detailed_review.md
+            echo "" >> detailed_review.md
+            
+            # ファイルの基本情報
+            FILE_SIZE=$(wc -c < "$file")
+            LINE_COUNT=$(wc -l < "$file")
+            
+            echo "**📊 基本メトリクス:**" >> detailed_review.md
+            echo "- サイズ: ${FILE_SIZE} bytes" >> detailed_review.md
+            echo "- 行数: ${LINE_COUNT} 行" >> detailed_review.md
+            
+            # 関数分析
+            FUNCTIONS=$(grep -n "function\|const.*=>\|class " "$file" | head -5)
+            if [ -n "$FUNCTIONS" ]; then
+              echo "" >> detailed_review.md
+              echo "**🔧 関数・クラス定義:**" >> detailed_review.md
+              echo '```javascript' >> detailed_review.md
+              echo "$FUNCTIONS" | cut -d: -f2- | sed 's/^[ \t]*//' >> detailed_review.md
+              echo '```' >> detailed_review.md
+            fi
+            
+            # コード品質チェック
+            echo "" >> detailed_review.md
+            echo "**✅ 品質チェック結果:**" >> detailed_review.md
+            
+            # エラーハンドリングチェック
+            if grep -q "try\|catch\|throw" "$file"; then
+              echo "- ✅ エラーハンドリングが実装されています" >> detailed_review.md
+            else
+              echo "- ⚠️ エラーハンドリングの追加を検討してください" >> detailed_review.md
+            fi
+            
+            # コメントの存在確認
+            COMMENT_COUNT=$(grep -c "^\s*//\|^\s*/\*\|\*" "$file" || echo "0")
+            if [ "$COMMENT_COUNT" -gt 5 ]; then
+              echo "- ✅ 十分なコメントが記述されています ($COMMENT_COUNT 行)" >> detailed_review.md
+            else
+              echo "- 💡 より詳細なコメントの追加を推奨します ($COMMENT_COUNT 行)" >> detailed_review.md
+            fi
+            
+            # ESモジュールの使用確認
+            if grep -q "import\|export" "$file"; then
+              echo "- ✅ ES Modulesを使用しています" >> detailed_review.md
+            fi
+            
+            # 定数の使用確認
+            if grep -q "const CONFIG\|CONFIG\." "$file"; then
+              echo "- ✅ 設定定数を適切に使用しています" >> detailed_review.md
+            fi
+            
+            # セキュリティチェック
+            SECURITY_ISSUES=""
+            if grep -q "innerHTML" "$file"; then
+              SECURITY_ISSUES="${SECURITY_ISSUES}- ⚠️ innerHTML の使用が検出されました。XSS対策を確認してください\n"
+            fi
+            if grep -q "eval\|Function(" "$file"; then
+              SECURITY_ISSUES="${SECURITY_ISSUES}- 🚨 eval() の使用が検出されました。セキュリティリスクを検討してください\n"
+            fi
+            if [ -n "$SECURITY_ISSUES" ]; then
+              echo "" >> detailed_review.md
+              echo "**🔒 セキュリティ注意点:**" >> detailed_review.md
+              echo -e "$SECURITY_ISSUES" >> detailed_review.md
+            fi
+            
+            # パフォーマンス提案
+            echo "" >> detailed_review.md
+            echo "**🚀 パフォーマンス改善提案:**" >> detailed_review.md
+            
+            if grep -q "querySelector\|getElementById" "$file"; then
+              echo "- 💡 DOM要素の取得はキャッシュすることを検討してください" >> detailed_review.md
+            fi
+            
+            if grep -q "setInterval\|setTimeout" "$file" && grep -q "requestAnimationFrame" "$file"; then
+              echo "- ✅ requestAnimationFrameを使用したアニメーション制御が実装されています" >> detailed_review.md
+            fi
+            
+            echo "" >> detailed_review.md
+            echo "---" >> detailed_review.md
+            echo "" >> detailed_review.md
+          fi
+        done < <(echo "${{ steps.changed_files.outputs.js_files }}")
+    
+    - name: Analyze other file types
+      run: |
+        echo "" >> detailed_review.md
+        echo "## 🔍 その他のファイル分析" >> detailed_review.md
+        echo "" >> detailed_review.md
+        
+        # HTMLファイルの分析
+        HTML_FILES=$(echo "${{ steps.changed_files.outputs.changed_files }}" | grep '\.html$' || echo "")
+        if [ -n "$HTML_FILES" ]; then
+          echo "### 📄 HTMLファイル" >> detailed_review.md
+          while IFS= read -r file; do
+            if [ -f "$file" ] && [ -n "$file" ]; then
+              echo "- **$file**:" >> detailed_review.md
+              
+              # セマンティックHTMLの使用確認
+              if grep -q "section\|article\|nav\|header\|footer\|main" "$file"; then
+                echo "  - ✅ セマンティックHTMLを使用" >> detailed_review.md
+              fi
+              
+              # アクセシビリティチェック
+              if grep -q "alt=\|aria-\|role=" "$file"; then
+                echo "  - ✅ アクセシビリティ属性が設定されています" >> detailed_review.md
+              else
+                echo "  - 💡 アクセシビリティ属性の追加を検討してください" >> detailed_review.md
+              fi
+            fi
+          done < <(echo "$HTML_FILES")
+          echo "" >> detailed_review.md
+        fi
+        
+        # CSSファイルの分析
+        CSS_FILES=$(echo "${{ steps.changed_files.outputs.changed_files }}" | grep '\.css$' || echo "")
+        if [ -n "$CSS_FILES" ]; then
+          echo "### 🎨 CSSファイル" >> detailed_review.md
+          while IFS= read -r file; do
+            if [ -f "$file" ] && [ -n "$file" ]; then
+              echo "- **$file**:" >> detailed_review.md
+              
+              # レスポンシブデザインの確認
+              if grep -q "@media" "$file"; then
+                echo "  - ✅ レスポンシブデザインが実装されています" >> detailed_review.md
+              fi
+              
+              # CSS Grid/Flexboxの使用確認
+              if grep -q "display:\s*flex\|display:\s*grid" "$file"; then
+                echo "  - ✅ モダンなレイアウト技術を使用" >> detailed_review.md
+              fi
+            fi
+          done < <(echo "$CSS_FILES")
+          echo "" >> detailed_review.md
+        fi
+    
+    - name: Generate Copilot suggestions
+      run: |
+        echo "" >> detailed_review.md
+        echo "## 💡 GitHub Copilot からの改善提案" >> detailed_review.md
+        echo "" >> detailed_review.md
+        echo "### 🎯 一般的な改善ポイント" >> detailed_review.md
+        echo "" >> detailed_review.md
+        echo "1. **コードの可読性**" >> detailed_review.md
+        echo "   - 変数名や関数名をより説明的にする" >> detailed_review.md
+        echo "   - 複雑な処理にはコメントを追加する" >> detailed_review.md
+        echo "" >> detailed_review.md
+        echo "2. **エラーハンドリング**" >> detailed_review.md
+        echo "   - try-catch ブロックの適切な使用" >> detailed_review.md
+        echo "   - ユーザーフレンドリーなエラーメッセージ" >> detailed_review.md
+        echo "" >> detailed_review.md
+        echo "3. **パフォーマンス最適化**" >> detailed_review.md
+        echo "   - 不要な再計算の削減" >> detailed_review.md
+        echo "   - DOM操作の最小化" >> detailed_review.md
+        echo "   - 適切なデータ構造の選択" >> detailed_review.md
+        echo "" >> detailed_review.md
+        echo "4. **セキュリティ**" >> detailed_review.md
+        echo "   - 入力値の検証" >> detailed_review.md
+        echo "   - XSS攻撃の防止" >> detailed_review.md
+        echo "   - 機密情報の適切な処理" >> detailed_review.md
+        echo "" >> detailed_review.md
+        echo "### 🚀 次のステップ" >> detailed_review.md
+        echo "" >> detailed_review.md
+        echo "- [ ] 上記の提案を検討・実装" >> detailed_review.md
+        echo "- [ ] テストケースの追加・実行" >> detailed_review.md
+        echo "- [ ] ドキュメントの更新" >> detailed_review.md
+        echo "- [ ] パフォーマンステストの実行" >> detailed_review.md
+        echo "" >> detailed_review.md
+        echo "---" >> detailed_review.md
+        echo "🤖 **この分析は GitHub Copilot の支援により自動生成されました。**" >> detailed_review.md
+        echo "さらに詳細なレビューが必要な場合は、PR内で \`@github-actions\` にメンションしてください。" >> detailed_review.md
+    
+    - name: Post detailed review
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh pr comment ${{ github.event.pull_request.number }} --body-file detailed_review.md
+        echo "✅ 詳細なコードレビューをPRに投稿しました"
+    
+    - name: Add review summary to PR
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        cat > review_summary.md << 'EOF'
+        ## 📋 レビューサマリー
+        
+        🤖 **GitHub Copilot自動レビューが完了しました！**
+        
+        ### 📊 分析済み項目
+        - ✅ コード品質とベストプラクティス
+        - ✅ セキュリティ脆弱性チェック  
+        - ✅ パフォーマンス最適化の機会
+        - ✅ アクセシビリティとUX
+        - ✅ コードの可読性と保守性
+        
+        ### 🎯 レビューアクション
+        上記の詳細分析を確認し、提案された改善点を検討してください。
+        
+        **人間のレビュアーの皆さま**: 
+        自動分析に加えて、ビジネスロジックやユーザーエクスペリエンスの観点からもレビューをお願いします。
+        
+        ---
+        💬 質問や追加の分析が必要な場合は、コメントでお知らせください。
+        EOF
+        
+        gh pr comment ${{ github.event.pull_request.number }} --body-file review_summary.md

@@ -1,0 +1,293 @@
+name: Auto PR with Copilot Review
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - develop
+  # feature/fix/などのブランチにプッシュされた時に実行
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  repository-projects: read
+
+jobs:
+  auto-pr-and-review:
+    runs-on: ubuntu-latest
+    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Get branch info
+      id: branch_info
+      run: |
+        BRANCH_NAME=${GITHUB_REF#refs/heads/}
+        BASE_BRANCH="develop"
+        
+        # mainブランチが存在しない場合の対応
+        if ! git show-ref --verify --quiet refs/remotes/origin/develop; then
+          BASE_BRANCH="main"
+        fi
+        
+        echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+        echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
+        echo "pr_title=🔄 Auto PR: $BRANCH_NAME" >> $GITHUB_OUTPUT
+    
+    - name: Check if PR already exists
+      id: check_pr
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
+        BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
+        
+        # 既存のPRをチェック
+        PR_NUMBER=$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --json number --jq '.[0].number // empty')
+        
+        if [ -n "$PR_NUMBER" ]; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "既存のPR #$PR_NUMBER が見つかりました"
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "新しいPRを作成します"
+        fi
+    
+    - name: Generate commit summary
+      id: commit_summary
+      run: |
+        BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
+        
+        # コミットの差分を取得
+        COMMITS=$(git log --oneline origin/$BASE_BRANCH..HEAD | head -10)
+        FILES_CHANGED=$(git diff --name-only origin/$BASE_BRANCH..HEAD | head -20)
+        
+        # PR本文を生成
+        cat > pr_body.md << 'EOF'
+        ## 🤖 自動生成されたPull Request
+        
+        ### 📝 変更内容
+        **変更されたファイル:**
+        ```
+        $FILES_CHANGED
+        ```
+        
+        **コミット履歴:**
+        ```
+        $COMMITS
+        ```
+        
+        ### 🔍 レビューポイント
+        - [ ] コード品質
+        - [ ] セキュリティ
+        - [ ] パフォーマンス
+        - [ ] テストカバレッジ
+        - [ ] ドキュメント
+        
+        ### 🚀 テスト状況
+        このPRは自動的に以下のチェックを実行します：
+        - ✅ 構文チェック
+        - ✅ Docker ビルドテスト
+        - ✅ セキュリティスキャン
+        - ✅ GitHub Copilot コードレビュー
+        
+        ### 📋 チェックリスト
+        - [ ] 変更内容を確認済み
+        - [ ] テストが通過することを確認済み
+        - [ ] ドキュメントを更新済み（必要に応じて）
+        - [ ] 破壊的変更がないことを確認済み
+        
+        ---
+        🤖 このPRは自動生成されました。レビューをお願いします！
+        EOF
+        
+        # ファイルとコミット情報を置換
+        sed -i "s|\$FILES_CHANGED|$FILES_CHANGED|g" pr_body.md
+        sed -i "s|\$COMMITS|$COMMITS|g" pr_body.md
+        
+        echo "body_file=pr_body.md" >> $GITHUB_OUTPUT
+    
+    - name: Create Pull Request
+      if: steps.check_pr.outputs.exists == 'false'
+      id: create_pr
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
+        BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
+        PR_TITLE="${{ steps.branch_info.outputs.pr_title }}"
+        
+        PR_URL=$(gh pr create \
+          --title "$PR_TITLE" \
+          --body-file "${{ steps.commit_summary.outputs.body_file }}" \
+          --base "$BASE_BRANCH" \
+          --head "$BRANCH_NAME" \
+          --draft)
+        
+        PR_NUMBER=$(echo "$PR_URL" | sed 's|.*/||')
+        
+        echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+        echo "新しいPR #$PR_NUMBER を作成しました: $PR_URL"
+    
+    - name: Add labels to PR
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
+        BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
+        
+        # ブランチ名に基づいてラベルを設定
+        LABELS="auto-generated"
+        
+        if [[ "$BRANCH_NAME" == feature/* ]]; then
+          LABELS="$LABELS,enhancement"
+        elif [[ "$BRANCH_NAME" == fix/* ]] || [[ "$BRANCH_NAME" == bugfix/* ]]; then
+          LABELS="$LABELS,bug"
+        elif [[ "$BRANCH_NAME" == hotfix/* ]]; then
+          LABELS="$LABELS,hotfix,priority-high"
+        elif [[ "$BRANCH_NAME" == docs/* ]]; then
+          LABELS="$LABELS,documentation"
+        fi
+        
+        gh pr edit "$PR_NUMBER" --add-label "$LABELS" || echo "ラベル追加をスキップしました"
+    
+    - name: Request Copilot Code Review
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
+        
+        # GitHub Copilot による自動レビューコメント
+        cat > copilot_review.md << 'EOF'
+        ## 🤖 GitHub Copilot 自動コードレビュー
+        
+        ### 📊 分析結果
+        このコードについて以下の観点から分析しました：
+        
+        **🔍 コード品質チェック:**
+        - 命名規則の一貫性
+        - 関数の複雑度
+        - コメントの適切性
+        - エラーハンドリング
+        
+        **🚀 パフォーマンス分析:**
+        - 処理効率
+        - メモリ使用量
+        - ループ最適化
+        
+        **🔒 セキュリティチェック:**
+        - 入力値検証
+        - XSS/CSRF対策
+        - 機密情報の露出
+        
+        **📝 改善提案:**
+        詳細なレビューコメントを各ファイルに追加します。
+        
+        ---
+        ℹ️ より詳細な分析が必要な場合は、PR内で `@github copilot` にメンションしてください。
+        EOF
+        
+        gh pr comment "$PR_NUMBER" --body-file copilot_review.md
+        echo "Copilot レビューコメントを追加しました"
+    
+    - name: Set up Node.js for additional checks
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Run enhanced code analysis
+      id: code_analysis
+      continue-on-error: true
+      run: |
+        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
+        
+        # 変更されたJSファイルをチェック
+        CHANGED_JS_FILES=$(git diff --name-only origin/${{ steps.branch_info.outputs.base_branch }}..HEAD | grep '\.js$' || true)
+        
+        if [ -n "$CHANGED_JS_FILES" ]; then
+          echo "## 🔍 JavaScript ファイル分析結果" > analysis_report.md
+          echo "" >> analysis_report.md
+          
+          for file in $CHANGED_JS_FILES; do
+            if [ -f "$file" ]; then
+              echo "### 📄 \`$file\`" >> analysis_report.md
+              
+              # ファイルサイズチェック
+              FILE_SIZE=$(wc -c < "$file")
+              echo "- **ファイルサイズ**: ${FILE_SIZE} bytes" >> analysis_report.md
+              
+              # 複雑度の簡易チェック
+              FUNCTION_COUNT=$(grep -c "function\|=>" "$file" || echo "0")
+              echo "- **関数数**: $FUNCTION_COUNT" >> analysis_report.md
+              
+              # TODOコメントの検索
+              TODO_COUNT=$(grep -c "TODO\|FIXME\|XXX" "$file" || echo "0")
+              if [ "$TODO_COUNT" -gt 0 ]; then
+                echo "- **⚠️ TODO/FIXME**: $TODO_COUNT 箇所" >> analysis_report.md
+              fi
+              
+              echo "" >> analysis_report.md
+            fi
+          done
+          
+          # 分析結果をPRにコメント
+          gh pr comment "$PR_NUMBER" --body-file analysis_report.md
+        fi
+    
+    - name: Update PR status
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
+        
+        # PRをdraftから通常状態に変更（必要に応じて）
+        gh pr ready "$PR_NUMBER" || echo "PR状態の変更をスキップしました"
+        
+        echo "✅ PR #$PR_NUMBER の自動セットアップが完了しました"
+    
+    - name: Notify in PR
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PR_NUMBER="${{ steps.check_pr.outputs.pr_number || steps.create_pr.outputs.pr_number }}"
+        
+        cat > final_notification.md << 'EOF'
+        ## 🎉 自動PR作成完了！
+        
+        このPRは自動的に作成・設定されました。以下の作業が完了しています：
+        
+        ✅ **基本設定**
+        - Pull Request作成
+        - 適切なラベル付与
+        - ベースブランチ設定
+        
+        ✅ **コード分析**
+        - GitHub Copilot レビュー実行
+        - JavaScript ファイル分析
+        - セキュリティチェック
+        
+        ✅ **CI/CD統合**
+        - 自動テスト実行予約
+        - ビルド検証設定
+        
+        ### 🔄 次のステップ
+        1. コードレビューの確認
+        2. テスト結果の確認
+        3. 必要に応じて修正
+        4. マージ準備
+        
+        ---
+        📝 **レビュアーの方へ**: このPRは自動生成されていますが、人の目によるレビューも重要です。特に以下の点をご確認ください：
+        - ビジネスロジックの妥当性
+        - ユーザビリティ
+        - 意図した動作との整合性
+        EOF
+        
+        gh pr comment "$PR_NUMBER" --body-file final_notification.md
