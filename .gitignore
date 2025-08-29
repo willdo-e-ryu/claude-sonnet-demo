@@ -1,0 +1,17 @@
+# GitHub Actions で生成される一時ファイル
+pr_body.md
+
+# ログファイル
+*.log
+
+# 一時ファイル
+*.tmp
+.DS_Store
+
+# IDEファイル
+.vscode/settings.json
+.idea/
+
+# Node.js
+node_modules/
+npm-debug.log*

@@ -2,6 +2,19 @@
 
 モダンなフロントエンド技術とDevOpsプラクティスを使用した、Flappy Birdのクローンゲームです。
 
+## 📖 目次
+- [🎮 ゲーム仕様](#-ゲーム仕様)
+- [🏗️ アーキテクチャ](#️-アーキテクチャ)
+- [🚀 クイックスタート](#-クイックスタート)
+- [🔧 開発・運用](#-開発運用)
+- [🏭 CI/CD パイプライン](#-cicd-パイプライン)
+- [🐳 Docker構成](#-docker構成)
+- [📱 モバイル対応](#-モバイル対応)
+- [🎯 ゲーム機能詳細](#-ゲーム機能詳細)
+- [🔒 セキュリティ](#-セキュリティ)
+- [📈 監視・ログ](#-監視ログ)
+- [🤝 コントリビューション](#-コントリビューション)
+
 ## 🎮 ゲーム仕様
 
 - **操作**: Space、Click、Touchでジャンプ、Pでポーズ
@@ -21,29 +34,30 @@
 ├─ Dockerfile                  # Nginx Alpine ベースイメージ
 ├─ docker-compose.yml          # ローカル開発用
 ├─ docker-compose.prod.yml     # 本番環境用
+├─ package.json               # Node.js プロジェクト設定
+├─ .gitignore                 # Git追跡除外ファイル
 ├─ README.md
+├─ GITHUB_ACTIONS_SETUP.md    # GitHub Actions 設定ガイド
 ├─ nginx/
 │   └─ default.conf           # Nginx設定（gzip、キャッシュ制御）
 ├─ public/                    # 静的ファイル
 │   ├─ index.html
-│   ├─ css/styles.css
-│   ├─ js/                    # ES Modules構成
-│   │   ├─ config.js          # ゲーム設定定数
-│   │   ├─ utils.js           # ユーティリティ関数
-│   │   ├─ input.js           # 入力管理
-│   │   ├─ state.js           # ゲーム状態管理
-│   │   ├─ pipes.js           # パイプシステム
-│   │   ├─ bird.js            # 鳥キャラクター
-│   │   ├─ score.js           # スコア管理
-│   │   └─ main.js            # メインゲームループ
-│   └─ assets/
-│       ├─ sounds/            # サウンドファイル（空）
-│       └─ images/            # 画像ファイル（空）
+│   ├─ css/
+│   │   └─ style.css          # メインスタイルシート
+│   └─ js/                    # ES Modules構成
+│       ├─ config.js          # ゲーム設定定数
+│       ├─ utils.js           # ユーティリティ関数
+│       ├─ input.js           # 入力管理
+│       ├─ state.js           # ゲーム状態管理
+│       ├─ pipes.js           # パイプシステム
+│       ├─ bird.js            # 鳥キャラクター
+│       ├─ score.js           # スコア管理
+│       └─ main.js            # メインゲームループ
 ├─ scripts/
-│   └─ deploy.sh             # デプロイスクリプト
+│   └─ test.js               # テストスクリプト
 └─ .github/workflows/
-    ├─ ci.yml                # 継続的インテグレーション
-    └─ cd.yml                # 継続的デプロイメント
+    ├─ auto-pr-review.yml    # 自動PR作成とレビュー
+    └─ pr-copilot-review.yml # GitHub Copilot CLIレビュー
 ```
 
 ### コード設計
@@ -59,15 +73,15 @@
 
 ```bash
 # リポジトリクローン
-git clone <repository-url>
-cd flappy-bird-clone
+git clone https://github.com/willdo-e-ryu/claude-sonnet-demo.git
+cd claude-sonnet-demo
 
 # Docker Composeで起動
 docker compose up --build
 
 # または直接Dockerで起動
-docker build -t flappy-nginx .
-docker run --rm -p 8080:80 flappy-nginx
+docker build -t flappy-bird-clone .
+docker run --rm -p 8080:80 flappy-bird-clone
 ```
 
 **アクセス**: http://localhost:8080
@@ -101,27 +115,14 @@ docker compose -f docker-compose.prod.yml up -d
 - **自動処理**:
   - Pull Requestの自動作成
   - 適切なラベル付与（ブランチ名に基づく）
-  - GitHub Copilotによる詳細コードレビュー
+  - GitHub Copilot CLIによる詳細コードレビュー
   - セキュリティ・パフォーマンス分析
   - 改善提案の自動生成
 
-### 継続的インテグレーション (CI)
-- **トリガー**: Push/PR時
-- **チェック項目**:
-  - HTML/JavaScript詳細構文検証
-  - コード品質メトリクス分析
-  - セキュリティ脆弱性スキャン
-  - Docker build テスト
-  - アプリケーション疎通確認
-- **実行**: `.github/workflows/ci.yml`
-
-### 継続的デプロイメント (CD)
-- **トリガー**: mainブランチプッシュ、タグプッシュ
-- **処理内容**:
-  - マルチアーキテクチャ対応ビルド (amd64/arm64)
-  - GitHub Container Registry (GHCR) への公開
-  - SSH経由での本番サーバデプロイ
-- **実行**: `.github/workflows/cd.yml`
+### GitHub Actions ワークフロー
+- **auto-pr-review.yml**: 自動PR作成とレビュー
+- **pr-copilot-review.yml**: GitHub Copilot CLIによるコードレビュー
+- **実行**: Push/PR時の自動実行
 
 ### 🤖 自動PR作成の使い方
 
@@ -157,6 +158,12 @@ git add . && git commit -m "feat: 新機能追加"
 ```
 
 ### 必要なSecrets設定
+現在のプロジェクトでは以下のシークレットが自動的に利用可能です：
+```yaml
+GITHUB_TOKEN: 自動生成（GitHub Actionsデフォルト）
+```
+
+追加のデプロイ設定が必要な場合：
 ```yaml
 SSH_PRIVATE_KEY: "-----BEGIN OPENSSH PRIVATE KEY-----"
 SSH_USER: "deploy-user"

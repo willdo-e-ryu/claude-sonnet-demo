@@ -1,27 +1,6 @@
 # GitHub Actions & Copilot Setup Guide
 
-## 🤖 GitHub Copilot CLI 統合ワー- **フォールバック**: Copilot利用不可時は基本分析
-
-## 🛠️ トラブルシューティング
-
-### よくある問題と解決法
-
-#### 1. 文字化け・エンコーディング問題
-```yaml
-⚠️ Review contains garbled characters
-分析結果に文字化けが発生する場合:
-- UTF-8 encoding conflicts
-- BOM (Byte Order Mark) presence  
-- Terminal locale settings
-```
-
-**対処法:**
-- ワークフローでUTF-8環境変数を設定済み (`LC_ALL=C.UTF-8`)
-- BOM除去処理を自動実行
-- 非ASCII文字の安全な処理を実装
-- タイムアウト時間を30秒に延長
-
-#### 2. Copilot拡張インストール失敗のプロジェクトには以下のワークフローが設定されています：
+このプロジェクトには以下のワークフローが設定されています：
 
 ### 📋 アクティブなワークフロー
 
@@ -31,8 +10,9 @@
    - 実際の有償Copilotライセンスを活用
 
 2. **`auto-pr-review.yml`** - 自動PR作成とレビュー
-   - コード変更時に自動PR作成
-   - ラベリングとプリレビュー分析
+   - feature/fix/などのブランチプッシュ時に自動実行
+   - 自動PR作成とラベリング
+   - プリレビュー分析
 
 ## 🔑 必須設定: GitHub Actions 権限
 
@@ -88,7 +68,7 @@ graph TD
   - 30秒タイムアウト付きでエラーハンドリング
 - **フォールバック**: Copilot利用不可時は基本分析
 
-## �️ トラブルシューティング
+## 🛠️ トラブルシューティング
 
 ### よくある問題と解決法
 
@@ -114,7 +94,22 @@ Possible reasons:
 - Repository Secrets の `GITHUB_TOKEN` 確認
 - Workflow permissions の設定確認
 
-#### 3. API制限・タイムアウト
+#### 3. 文字化け・エンコーディング問題
+```yaml
+⚠️ Review contains garbled characters
+分析結果に文字化けが発生する場合:
+- UTF-8 encoding conflicts
+- BOM (Byte Order Mark) presence  
+- Terminal locale settings
+```
+
+**対処法:**
+- ワークフローでUTF-8環境変数を設定済み (`LC_ALL=C.UTF-8`)
+- BOM除去処理を自動実行
+- 非ASCII文字の安全な処理を実装
+- タイムアウト時間を30秒に延長
+
+#### 4. API制限・タイムアウト
 ```yaml
 ⚠️ Copilot API が一時的に利用できません（タイムアウトまたはレート制限）
 ```
