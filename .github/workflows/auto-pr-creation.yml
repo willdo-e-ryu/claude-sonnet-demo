@@ -1,0 +1,112 @@
+name: Auto PR Creation
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - master
+      - develop
+  # feature/fix/などのブランチにプッシュされた時に実行
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-pr:
+    runs-on: ubuntu-latest
+    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Get branch info
+      id: branch_info
+      run: |
+        BRANCH_NAME=${GITHUB_REF#refs/heads/}
+        BASE_BRANCH="master"
+        
+        # developブランチが存在する場合はそちらを優先
+        if git show-ref --verify --quiet refs/remotes/origin/develop; then
+          BASE_BRANCH="develop"
+        # mainブランチが存在する場合
+        elif git show-ref --verify --quiet refs/remotes/origin/main; then
+          BASE_BRANCH="main"
+        fi
+        
+        echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+        echo "base_branch=$BASE_BRANCH" >> $GITHUB_OUTPUT
+        echo "pr_title=🔄 Auto PR: $BRANCH_NAME" >> $GITHUB_OUTPUT
+    
+    - name: Check if PR already exists
+      id: check_pr
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
+        BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
+        
+        # 既存のPRをチェック
+        PR_NUMBER=$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --json number --jq '.[0].number // empty' || echo "")
+        
+        if [ -n "$PR_NUMBER" ]; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "既存のPR #$PR_NUMBER が見つかりました - スキップします"
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "新しいPRを作成します"
+        fi
+    
+    - name: Generate commit summary
+      if: steps.check_pr.outputs.exists == 'false'
+      id: commit_summary
+      run: |
+        BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
+        
+        # コミットの差分を取得
+        COMMITS=$(git log --oneline origin/$BASE_BRANCH..HEAD | head -10)
+        FILES_CHANGED=$(git diff --name-only origin/$BASE_BRANCH..HEAD | head -20)
+        
+        # シンプルなPR本文を生成
+        {
+          echo "## 📝 変更内容"
+          echo ""
+          echo "**変更されたファイル:**"
+          echo '```'
+          echo "$FILES_CHANGED"
+          echo '```'
+          echo ""
+          echo "**コミット履歴:**"
+          echo '```'
+          echo "$COMMITS"
+          echo '```'
+        } > pr_body.md
+    
+    - name: Create Pull Request
+      if: steps.check_pr.outputs.exists == 'false'
+      id: create_pr
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
+        BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
+        PR_TITLE="${{ steps.branch_info.outputs.pr_title }}"
+        
+        # GitHub CLI でPRを作成
+        PR_URL=$(gh pr create \
+          --title "$PR_TITLE" \
+          --body-file pr_body.md \
+          --base "$BASE_BRANCH" \
+          --head "$BRANCH_NAME" \
+          --repo ${{ github.repository }})
+        
+        # PR番号を抽出
+        PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]\+$')
+        
+        echo "✅ PR #$PR_NUMBER が作成されました: $PR_URL"
+        echo "pull-request-number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        echo "pull-request-url=$PR_URL" >> $GITHUB_OUTPUT
