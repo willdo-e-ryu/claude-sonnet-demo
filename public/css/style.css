@@ -24,12 +24,11 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
+    width: 100vw;
+    height: 100vh;
     background: rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
-    padding: 20px;
     backdrop-filter: blur(10px);
-    box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
-    border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 /* キャンバス */
@@ -38,11 +37,7 @@ body {
     border-radius: 10px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
     cursor: pointer;
-    transition: transform 0.1s ease;
-}
-
-#gameCanvas:hover {
-    transform: scale(1.01);
+    display: block;
 }
 
 /* UI要素 */

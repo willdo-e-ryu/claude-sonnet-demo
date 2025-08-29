@@ -4,9 +4,9 @@
  */
 
 export const CONFIG = {
-    // キャンバスサイズ
-    CANVAS_WIDTH: 400,
-    CANVAS_HEIGHT: 600,
+    // キャンバスサイズ（大きく設定）
+    CANVAS_WIDTH: 1200,
+    CANVAS_HEIGHT: 800,
     
     // 鳥の設定
     BIRD: {
@@ -26,9 +26,15 @@ export const CONFIG = {
     // パイプ設定
     PIPE: {
         WIDTH: 60,
-        GAP_SIZE: 150,
-        SPEED: 2.5,
-        SPAWN_INTERVAL: 1800, // ミリ秒
+        GAP_SIZE: 280, // さらに広い間隔に設定
+        GAP_SIZE_MIN: 120, // 最小間隔を120に設定
+        GAP_SIZE_DECREMENT: 0.05, // パイプ間隔減少率（5%）
+        SPEED: 1.0, // より遅いスピードに設定
+        SPEED_INCREMENT: 0.05, // スコア取得時の速度増加率（5%）
+        MAX_SPEED: 2.5, // 最大速度も抑えめに
+        SPAWN_INTERVAL: 4400, // パイプ間距離の初期値（2200の200%）
+        SPAWN_INTERVAL_MIN: 1760, // パイプ間距離の最小値（2200の80%）
+        SPAWN_INTERVAL_DECREMENT: 0.05, // パイプ間距離減少率（5%）
         MIN_HEIGHT: 50,
         COLOR: '#228B22',
         OUTLINE_COLOR: '#006400'
@@ -56,7 +62,7 @@ export const CONFIG = {
     },
     
     // デバッグ設定
-    DEBUG: false, // 本番では false
+    DEBUG: false, // デバッグモードを無効化
     
     // ゲーム状態
     STATES: {

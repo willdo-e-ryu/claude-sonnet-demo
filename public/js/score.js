@@ -60,29 +60,20 @@ export class ScoreManager {
     }
     
     /**
-     * 表示を更新
+     * 表示を更新（キャンバス描画用）
      */
     updateDisplay() {
         if (this.gameStateManager) {
             this.gameStateManager.updateScore(this.currentScore, this.bestScore);
         }
+        // キャンバスベースのゲームでは、スコア描画は別の場所で行います
     }
     
     /**
-     * スコア獲得エフェクト
+     * スコア獲得エフェクト（キャンバス描画用）
      */
     triggerScoreEffect() {
-        // スコア獲得時の視覚効果（簡単な実装）
-        const scoreElement = document.getElementById('currentScore');
-        if (scoreElement) {
-            scoreElement.style.transform = 'scale(1.2)';
-            scoreElement.style.color = '#FFD700';
-            
-            setTimeout(() => {
-                scoreElement.style.transform = 'scale(1)';
-                scoreElement.style.color = '#ffffff';
-            }, 200);
-        }
+        // キャンバスベースのゲームでは、エフェクトは別の場所で実装します
         
         // カスタムイベント発火
         document.dispatchEvent(new CustomEvent('scoreAdded', {

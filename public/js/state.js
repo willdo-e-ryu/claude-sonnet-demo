@@ -2,28 +2,12 @@ import { CONFIG } from './config.js';
 
 /**
  * ゲーム状態管理クラス
- * ゲームの状態遷移とUI表示制御を担当
+ * ゲームの状態遷移を担当（UI描画はキャンバスで実行）
  */
 export class GameStateManager {
     constructor() {
         this.currentState = CONFIG.STATES.START;
         this.previousState = null;
-        
-        this.setupUI();
-    }
-    
-    /**
-     * UI要素の取得と初期設定
-     */
-    setupUI() {
-        this.startScreen = document.getElementById('startScreen');
-        this.gameOverScreen = document.getElementById('gameOverScreen');
-        this.hud = document.getElementById('hud');
-        this.currentScoreElement = document.getElementById('currentScore');
-        this.finalScoreElement = document.getElementById('finalScore');
-        this.bestScoreElement = document.getElementById('bestScore');
-        
-        this.updateUIVisibility();
     }
     
     /**
@@ -100,48 +84,21 @@ export class GameStateManager {
     }
     
     /**
-     * UI表示の更新
+     * UI表示の更新（キャンバス描画用）
+     * この関数は現在は何もしませんが、将来的な拡張のために残しています
      */
     updateUIVisibility() {
-        // 全てのスクリーンを非表示
-        this.startScreen.classList.remove('active');
-        this.gameOverScreen.classList.remove('active');
-        
-        switch (this.currentState) {
-            case CONFIG.STATES.START:
-                this.startScreen.classList.add('active');
-                this.hud.style.opacity = '0';
-                break;
-                
-            case CONFIG.STATES.PLAYING:
-            case CONFIG.STATES.PAUSED:
-                this.hud.style.opacity = '1';
-                break;
-                
-            case CONFIG.STATES.GAME_OVER:
-                this.gameOverScreen.classList.add('active');
-                this.hud.style.opacity = '1';
-                break;
-        }
+        // キャンバスベースのゲームでは、UI描画は別の場所で行います
     }
     
     /**
-     * スコア表示の更新
+     * スコア表示の更新（キャンバス描画用）
      * @param {number} currentScore - 現在のスコア
      * @param {number} bestScore - ベストスコア
      */
     updateScore(currentScore, bestScore) {
-        if (this.currentScoreElement) {
-            this.currentScoreElement.textContent = currentScore;
-        }
-        
-        if (this.finalScoreElement) {
-            this.finalScoreElement.textContent = `Score: ${currentScore}`;
-        }
-        
-        if (this.bestScoreElement) {
-            this.bestScoreElement.textContent = `Best: ${bestScore}`;
-        }
+        // キャンバスベースのゲームでは、スコア描画は別の場所で行います
+        // この関数は互換性のために残しています
     }
     
     /**
