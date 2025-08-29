@@ -1,11 +1,9 @@
-name: PR Code Review with Copilot
+name: GitHub Copilot CLI Code Review
 
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review]
     branches: [ main, master, develop ]
-  pull_request_review:
-    types: [submitted]
 
 permissions:
   contents: read
@@ -13,7 +11,7 @@ permissions:
   issues: write
 
 jobs:
-  copilot-review:
+  copilot-cli-review:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
     
@@ -24,235 +22,313 @@ jobs:
         fetch-depth: 0
         ref: ${{ github.event.pull_request.head.sha }}
     
-    - name: Get changed files
-      id: changed_files
+    - name: Setup GitHub CLI and Authenticate
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # PRで変更されたファイルを取得
+        # GitHub CLI は ubuntu-latest に既にインストール済み
+        echo "GitHub CLI version: $(gh --version)"
+        
+        # 環境変数が設定されているかチェック
+        if [ -z "$GH_TOKEN" ]; then
+          echo "❌ GH_TOKEN environment variable is not set"
+          exit 1
+        fi
+        
+        # GitHub CLI 認証（環境変数方式）
+        export GH_TOKEN="$GH_TOKEN"
+        
+        # 認証状態を確認
+        if gh auth status 2>/dev/null; then
+          echo "✅ GitHub CLI authentication successful via GH_TOKEN"
+        else
+          echo "⚠️ Authentication check failed, but GH_TOKEN is set - proceeding"
+        fi
+    
+    - name: Install GitHub Copilot Extension
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # GitHub Copilot 拡張機能をインストール（エラーハンドリング強化）
+        echo "🔍 Checking for existing Copilot extension..."
+        
+        if gh extension list 2>/dev/null | grep -q "gh-copilot"; then
+          echo "✅ GitHub Copilot extension already installed"
+        else
+          echo "📦 Installing GitHub Copilot extension..."
+          if gh extension install github/gh-copilot 2>/dev/null; then
+            echo "✅ GitHub Copilot extension installed successfully"
+          else
+            echo "⚠️ Copilot extension installation failed"
+            echo "Possible reasons:"
+            echo "- GitHub Copilot license required"
+            echo "- Network connectivity issues"
+            echo "- Extension not available in this environment"
+          fi
+        fi
+        
+        # 拡張機能リストを確認
+        echo ""
+        echo "📋 Installed extensions:"
+        gh extension list 2>/dev/null || echo "No extensions found or access denied"
+        
+        # Copilot コマンドの利用可能性をテスト
+        echo ""
+        echo "🧪 Testing Copilot CLI availability..."
+        if command -v gh >/dev/null 2>&1 && gh copilot --help >/dev/null 2>&1; then
+          echo "✅ GitHub Copilot CLI is ready and available"
+          echo "COPILOT_AVAILABLE=true" >> $GITHUB_ENV
+        else
+          echo "⚠️ GitHub Copilot CLI not available - will use fallback analysis"
+          echo "COPILOT_AVAILABLE=false" >> $GITHUB_ENV
+        fi
+    
+    - name: GitHub Copilot CLI Code Analysis
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        LC_ALL: ja_JP.UTF-8
+        LANG: ja_JP.UTF-8
+        GH_COPILOT_SKIP_SURVEY: 1
+      run: |
+        # UTF-8エンコーディングの設定（文字化け防止）
+        export LC_ALL=ja_JP.UTF-8
+        export LANG=ja_JP.UTF-8
+        export LANGUAGE=ja_JP.UTF-8
+        export TZ=Asia/Tokyo
+        export GH_COPILOT_SKIP_SURVEY=1
+        
+        # レビューファイルをUTF-8で初期化
+        echo "## 🤖 GitHub Copilot CLI レビュー分析" > copilot_cli_review.md
+        echo "" >> copilot_cli_review.md
+        echo "### 📅 分析実行日時: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')" >> copilot_cli_review.md
+        echo "" >> copilot_cli_review.md
+        
+        # 変更されたファイルを取得
         git fetch origin ${{ github.event.pull_request.base.ref }}
         CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}..HEAD)
         
-        echo "changed_files<<EOF" >> $GITHUB_OUTPUT
-        echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        echo "### 📄 変更されたファイル一覧" >> copilot_cli_review.md
+        echo "\`\`\`" >> copilot_cli_review.md
+        echo "$CHANGED_FILES" >> copilot_cli_review.md
+        echo "\`\`\`" >> copilot_cli_review.md
+        echo "" >> copilot_cli_review.md
         
-        # JavaScriptファイルのみを抽出
-        JS_FILES=$(echo "$CHANGED_FILES" | grep '\.js$' || echo "")
-        echo "js_files<<EOF" >> $GITHUB_OUTPUT
-        echo "$JS_FILES" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-    
-    - name: Analyze JavaScript files
-      if: steps.changed_files.outputs.js_files != ''
-      id: js_analysis
-      run: |
-        echo "## 🤖 GitHub Copilot コードレビュー詳細分析" > detailed_review.md
-        echo "" >> detailed_review.md
-        echo "以下のJavaScriptファイルについて詳細分析を実行しました：" >> detailed_review.md
-        echo "" >> detailed_review.md
+        # Copilot CLI の利用可否を確認
+        echo "🔍 Checking Copilot CLI availability..."
         
-        while IFS= read -r file; do
-          if [ -f "$file" ] && [ -n "$file" ]; then
-            echo "### 📄 \`$file\`" >> detailed_review.md
-            echo "" >> detailed_review.md
-            
-            # ファイルの基本情報
-            FILE_SIZE=$(wc -c < "$file")
-            LINE_COUNT=$(wc -l < "$file")
-            
-            echo "**📊 基本メトリクス:**" >> detailed_review.md
-            echo "- サイズ: ${FILE_SIZE} bytes" >> detailed_review.md
-            echo "- 行数: ${LINE_COUNT} 行" >> detailed_review.md
-            
-            # 関数分析
-            FUNCTIONS=$(grep -n "function\|const.*=>\|class " "$file" | head -5)
-            if [ -n "$FUNCTIONS" ]; then
-              echo "" >> detailed_review.md
-              echo "**🔧 関数・クラス定義:**" >> detailed_review.md
-              echo '```javascript' >> detailed_review.md
-              echo "$FUNCTIONS" | cut -d: -f2- | sed 's/^[ \t]*//' >> detailed_review.md
-              echo '```' >> detailed_review.md
-            fi
-            
-            # コード品質チェック
-            echo "" >> detailed_review.md
-            echo "**✅ 品質チェック結果:**" >> detailed_review.md
-            
-            # エラーハンドリングチェック
-            if grep -q "try\|catch\|throw" "$file"; then
-              echo "- ✅ エラーハンドリングが実装されています" >> detailed_review.md
-            else
-              echo "- ⚠️ エラーハンドリングの追加を検討してください" >> detailed_review.md
-            fi
-            
-            # コメントの存在確認
-            COMMENT_COUNT=$(grep -c "^\s*//\|^\s*/\*\|\*" "$file" || echo "0")
-            if [ "$COMMENT_COUNT" -gt 5 ]; then
-              echo "- ✅ 十分なコメントが記述されています ($COMMENT_COUNT 行)" >> detailed_review.md
-            else
-              echo "- 💡 より詳細なコメントの追加を推奨します ($COMMENT_COUNT 行)" >> detailed_review.md
-            fi
-            
-            # ESモジュールの使用確認
-            if grep -q "import\|export" "$file"; then
-              echo "- ✅ ES Modulesを使用しています" >> detailed_review.md
-            fi
-            
-            # 定数の使用確認
-            if grep -q "const CONFIG\|CONFIG\." "$file"; then
-              echo "- ✅ 設定定数を適切に使用しています" >> detailed_review.md
-            fi
-            
-            # セキュリティチェック
-            SECURITY_ISSUES=""
-            if grep -q "innerHTML" "$file"; then
-              SECURITY_ISSUES="${SECURITY_ISSUES}- ⚠️ innerHTML の使用が検出されました。XSS対策を確認してください\n"
-            fi
-            if grep -q "eval\|Function(" "$file"; then
-              SECURITY_ISSUES="${SECURITY_ISSUES}- 🚨 eval() の使用が検出されました。セキュリティリスクを検討してください\n"
-            fi
-            if [ -n "$SECURITY_ISSUES" ]; then
-              echo "" >> detailed_review.md
-              echo "**🔒 セキュリティ注意点:**" >> detailed_review.md
-              echo -e "$SECURITY_ISSUES" >> detailed_review.md
-            fi
-            
-            # パフォーマンス提案
-            echo "" >> detailed_review.md
-            echo "**🚀 パフォーマンス改善提案:**" >> detailed_review.md
-            
-            if grep -q "querySelector\|getElementById" "$file"; then
-              echo "- 💡 DOM要素の取得はキャッシュすることを検討してください" >> detailed_review.md
-            fi
-            
-            if grep -q "setInterval\|setTimeout" "$file" && grep -q "requestAnimationFrame" "$file"; then
-              echo "- ✅ requestAnimationFrameを使用したアニメーション制御が実装されています" >> detailed_review.md
-            fi
-            
-            echo "" >> detailed_review.md
-            echo "---" >> detailed_review.md
-            echo "" >> detailed_review.md
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
+          echo "### 🤖 GitHub Copilot CLI 分析結果" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "✅ **GitHub Copilot CLI 拡張機能が利用可能です**" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+        else
+          echo "### ⚠️ GitHub Copilot CLI 制限モード" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "⚠️ **GitHub Copilot CLI 拡張機能が利用できません**" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "**理由の可能性:**" >> copilot_cli_review.md
+          echo "- GitHub Copilot ライセンス認証が必要" >> copilot_cli_review.md
+          echo "- 拡張機能インストール失敗" >> copilot_cli_review.md
+          echo "- GitHub Actions 環境制限" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+        fi
+        
+        # プロジェクト全体についてCopilot提案を取得（文字化け対策付き）
+        echo "#### 🎯 プロジェクト改善提案" >> copilot_cli_review.md
+        echo "" >> copilot_cli_review.md
+        
+        # Copilot が利用可能な場合のみ詳細提案を取得
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
+          echo "**🤖 GitHub Copilot からの提案:**" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          
+          # プロジェクト改善提案を取得（エンコーディング安全化）
+          SUGGESTION_QUERY="このFlappy Birdプロジェクトのコード品質を向上させるための提案を日本語で教えてください。具体的で実践的なアドバイスをお願いします。"
+          if timeout 30s bash -c "
+            export LC_ALL=ja_JP.UTF-8
+            export LANG=ja_JP.UTF-8
+            export GH_COPILOT_SKIP_SURVEY=1
+            echo '$SUGGESTION_QUERY' | gh copilot suggest --no-interactive 2>/dev/null | 
+            head -10 | 
+            iconv -f UTF-8 -t UTF-8//IGNORE 2>/dev/null || 
+            echo '- Copilot提案の取得中にエンコーディングエラーが発生しました'
+          " >> copilot_cli_review.md 2>/dev/null; then
+            echo "" >> copilot_cli_review.md
+          else
+            echo "- ⚠️ Copilot API が一時的に利用できません（タイムアウトまたはレート制限）" >> copilot_cli_review.md
+            echo "" >> copilot_cli_review.md
           fi
-        done < <(echo "${{ steps.changed_files.outputs.js_files }}")
-    
-    - name: Analyze other file types
-      run: |
-        echo "" >> detailed_review.md
-        echo "## 🔍 その他のファイル分析" >> detailed_review.md
-        echo "" >> detailed_review.md
-        
-        # HTMLファイルの分析
-        HTML_FILES=$(echo "${{ steps.changed_files.outputs.changed_files }}" | grep '\.html$' || echo "")
-        if [ -n "$HTML_FILES" ]; then
-          echo "### 📄 HTMLファイル" >> detailed_review.md
-          while IFS= read -r file; do
-            if [ -f "$file" ] && [ -n "$file" ]; then
-              echo "- **$file**:" >> detailed_review.md
-              
-              # セマンティックHTMLの使用確認
-              if grep -q "section\|article\|nav\|header\|footer\|main" "$file"; then
-                echo "  - ✅ セマンティックHTMLを使用" >> detailed_review.md
-              fi
-              
-              # アクセシビリティチェック
-              if grep -q "alt=\|aria-\|role=" "$file"; then
-                echo "  - ✅ アクセシビリティ属性が設定されています" >> detailed_review.md
-              else
-                echo "  - 💡 アクセシビリティ属性の追加を検討してください" >> detailed_review.md
-              fi
-            fi
-          done < <(echo "$HTML_FILES")
-          echo "" >> detailed_review.md
+          
+          # Copilot suggest コマンドで改善提案を取得（エラーハンドリング強化）
+          if timeout 30s bash -c "
+            export LC_ALL=ja_JP.UTF-8
+            export LANG=ja_JP.UTF-8
+            export GH_COPILOT_SKIP_SURVEY=1
+            gh copilot suggest 'CanvasとJavaScriptで作られたFlappy Birdゲームのコード品質改善について、日本語で具体的な提案をしてください。パフォーマンス、保守性、セキュリティの観点から改善点を教えてください。' --no-interactive 2>/dev/null
+          " | head -15 >> copilot_cli_review.md; then
+            echo "" >> copilot_cli_review.md
+          else
+            echo "- ⚠️ Copilot API が一時的に利用できません（タイムアウトまたはレート制限）" >> copilot_cli_review.md
+            echo "" >> copilot_cli_review.md
+          fi
+        else
+          # フォールバック提案（Copilot利用不可時）
+          echo "**💫 基本的な改善提案:**" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "- 🎯 **モジュール化**: ゲームロジックを複数のクラスに分割" >> copilot_cli_review.md
+          echo "- 🚀 **パフォーマンス**: requestAnimationFrame の最適化" >> copilot_cli_review.md
+          echo "- 🧪 **テスト**: Jest によるユニットテスト追加" >> copilot_cli_review.md
+          echo "- 🔒 **エラー処理**: try-catch文の適切な配置" >> copilot_cli_review.md
+          echo "- 📱 **アクセシビリティ**: キーボード操作対応" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
         fi
         
-        # CSSファイルの分析
-        CSS_FILES=$(echo "${{ steps.changed_files.outputs.changed_files }}" | grep '\.css$' || echo "")
-        if [ -n "$CSS_FILES" ]; then
-          echo "### 🎨 CSSファイル" >> detailed_review.md
+        # 各ファイルについて個別に分析
+        echo "#### 📂 個別ファイル分析" >> copilot_cli_review.md
+        echo "" >> copilot_cli_review.md
+        
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
           while IFS= read -r file; do
             if [ -f "$file" ] && [ -n "$file" ]; then
-              echo "- **$file**:" >> detailed_review.md
+              echo "##### 📄 \`$file\`" >> copilot_cli_review.md
+              echo "" >> copilot_cli_review.md
               
-              # レスポンシブデザインの確認
-              if grep -q "@media" "$file"; then
-                echo "  - ✅ レスポンシブデザインが実装されています" >> detailed_review.md
-              fi
+              # ファイル拡張子別の分析
+              FILE_EXT="${file##*.}"
+              case "$FILE_EXT" in
+                js)
+                  echo "**🔧 JavaScript 分析:**" >> copilot_cli_review.md
+                  
+                  # ファイルの基本分析（Copilot利用可否に関わらず）
+                  LINE_COUNT=$(wc -l < "$file")
+                  FUNCTION_COUNT=$(grep -c "function\|const.*=>\|class " "$file" || echo "0")
+                  
+                  echo "- 📊 行数: $LINE_COUNT 行" >> copilot_cli_review.md
+                  echo "- 🔧 関数・クラス数: $FUNCTION_COUNT 個" >> copilot_cli_review.md
+                  
+                  # Copilot が利用可能な場合のみ実行
+                  if [ "$COPILOT_AVAILABLE" = "true" ]; then
+                    FILE_PREVIEW=$(head -5 "$file" | grep -v '^$' | head -3)
+                    if [ -n "$FILE_PREVIEW" ]; then
+                      echo "" >> copilot_cli_review.md
+                      echo "**💡 Copilot 提案:**" >> copilot_cli_review.md
+                      
+                      # Copilot explain でコード分析（タイムアウト・エンコーディング対応）
+                      if timeout 30s bash -c "
+                        export LC_ALL=ja_JP.UTF-8
+                        export LANG=ja_JP.UTF-8
+                        export GH_COPILOT_SKIP_SURVEY=1
+                        echo '$FILE_PREVIEW' | gh copilot explain --no-interactive 2>/dev/null | 
+                        head -8 | 
+                        sed 's/[^\x00-\x7F]/?/g' 2>/dev/null || echo '- Copilot分析で文字エンコーディングエラーが発生しました'
+                      " >> copilot_cli_review.md; then
+                        echo "" >> copilot_cli_review.md
+                      else
+                        echo "- ⚠️ Copilot 分析はタイムアウトまたはAPI制限により一時的に利用できません" >> copilot_cli_review.md
+                        echo "" >> copilot_cli_review.md
+                      fi
+                    fi
+                  fi
+                  
+                  # 基本的なコード品質チェック（常に実行）
+                  if grep -q "console\.log" "$file"; then
+                    echo "- ⚠️ console.log 残存（本番前除去推奨）" >> copilot_cli_review.md
+                  fi
+                  
+                  if grep -q "try\|catch" "$file"; then
+                    echo "- ✅ エラーハンドリング実装済み" >> copilot_cli_review.md
+                  fi
+                  ;;
+                html)
+                  echo "**📄 HTML ファイル分析:**" >> copilot_cli_review.md
+                  if grep -q "alt=\|aria-" "$file"; then
+                    echo "- ✅ アクセシビリティ属性あり" >> copilot_cli_review.md
+                  else
+                    echo "- 💡 alt属性やARIA属性の追加を推奨" >> copilot_cli_review.md
+                  fi
+                  ;;
+                css)
+                  echo "**🎨 CSS ファイル分析:**" >> copilot_cli_review.md
+                  echo "- サイズ: $(wc -c < "$file") bytes" >> copilot_cli_review.md
+                  if grep -q "@media" "$file"; then
+                    echo "- ✅ レスポンシブデザイン対応" >> copilot_cli_review.md
+                  fi
+                  ;;
+              esac
               
-              # CSS Grid/Flexboxの使用確認
-              if grep -q "display:\s*flex\|display:\s*grid" "$file"; then
-                echo "  - ✅ モダンなレイアウト技術を使用" >> detailed_review.md
-              fi
+              echo "" >> copilot_cli_review.md
             fi
-          done < <(echo "$CSS_FILES")
-          echo "" >> detailed_review.md
+          done < <(echo "$CHANGED_FILES")
+        else
+          echo "### ⚠️ GitHub Copilot CLI 未利用" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "GitHub Copilot CLI 拡張機能が利用できませんでした。" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "**可能な理由:**" >> copilot_cli_review.md
+          echo "- GitHub Copilot ライセンス認証が必要" >> copilot_cli_review.md
+          echo "- 拡張機能のインストールエラー" >> copilot_cli_review.md
+          echo "- API レート制限" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "**💡 代替手段:** VS Code で GitHub Copilot を直接使用することを推奨します。" >> copilot_cli_review.md
+        fi
+        
+        echo "" >> copilot_cli_review.md
+        echo "---" >> copilot_cli_review.md
+        echo "" >> copilot_cli_review.md
+        echo "🤖 **GitHub Copilot CLI 統合分析完了** - $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')" >> copilot_cli_review.md
+        echo "" >> copilot_cli_review.md
+        echo "💡 **ローカル開発**: VS Code で \`gh copilot suggest\` または \`gh copilot explain\` を使用して、より詳細な提案を得ることができます。" >> copilot_cli_review.md
+    
+    - name: Post Copilot CLI Review to PR
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        LC_ALL: ja_JP.UTF-8
+        LANG: ja_JP.UTF-8
+      run: |
+        # UTF-8エンコーディングの確認（文字化け防止）
+        export LC_ALL=ja_JP.UTF-8
+        export LANG=ja_JP.UTF-8
+        
+        # ファイルのエンコーディングを確認
+        echo "📋 Review file encoding check:"
+        file copilot_cli_review.md
+        
+        # BOMの除去（文字化け原因となる可能性）
+        if [ -f copilot_cli_review.md ]; then
+          # BOMが存在する場合は除去
+          sed -i '1s/^\xEF\xBB\xBF//' copilot_cli_review.md 2>/dev/null || true
+          
+          # ファイルサイズとエンコーディングを確認
+          echo "📊 File size: $(wc -c < copilot_cli_review.md) bytes"
+          echo "📄 Line count: $(wc -l < copilot_cli_review.md) lines"
+          
+          # PRにCopilot CLI レビューコメントを投稿
+          echo "🚀 Posting review comment to PR..."
+          if gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file copilot_cli_review.md \
+            --repo ${{ github.repository }}; then
+            echo "✅ GitHub Copilot CLI レビューがPRに投稿されました"
+          else
+            echo "⚠️ PR comment posting failed, trying alternative method..."
+            # フォールバック: ファイル内容を直接指定
+            REVIEW_CONTENT=$(cat copilot_cli_review.md)
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --body "$REVIEW_CONTENT" \
+              --repo ${{ github.repository }} || echo "❌ Review posting failed completely"
+          fi
+        else
+          echo "❌ Review file not found"
+          exit 1
         fi
     
-    - name: Generate Copilot suggestions
-      run: |
-        echo "" >> detailed_review.md
-        echo "## 💡 GitHub Copilot からの改善提案" >> detailed_review.md
-        echo "" >> detailed_review.md
-        echo "### 🎯 一般的な改善ポイント" >> detailed_review.md
-        echo "" >> detailed_review.md
-        echo "1. **コードの可読性**" >> detailed_review.md
-        echo "   - 変数名や関数名をより説明的にする" >> detailed_review.md
-        echo "   - 複雑な処理にはコメントを追加する" >> detailed_review.md
-        echo "" >> detailed_review.md
-        echo "2. **エラーハンドリング**" >> detailed_review.md
-        echo "   - try-catch ブロックの適切な使用" >> detailed_review.md
-        echo "   - ユーザーフレンドリーなエラーメッセージ" >> detailed_review.md
-        echo "" >> detailed_review.md
-        echo "3. **パフォーマンス最適化**" >> detailed_review.md
-        echo "   - 不要な再計算の削減" >> detailed_review.md
-        echo "   - DOM操作の最小化" >> detailed_review.md
-        echo "   - 適切なデータ構造の選択" >> detailed_review.md
-        echo "" >> detailed_review.md
-        echo "4. **セキュリティ**" >> detailed_review.md
-        echo "   - 入力値の検証" >> detailed_review.md
-        echo "   - XSS攻撃の防止" >> detailed_review.md
-        echo "   - 機密情報の適切な処理" >> detailed_review.md
-        echo "" >> detailed_review.md
-        echo "### 🚀 次のステップ" >> detailed_review.md
-        echo "" >> detailed_review.md
-        echo "- [ ] 上記の提案を検討・実装" >> detailed_review.md
-        echo "- [ ] テストケースの追加・実行" >> detailed_review.md
-        echo "- [ ] ドキュメントの更新" >> detailed_review.md
-        echo "- [ ] パフォーマンステストの実行" >> detailed_review.md
-        echo "" >> detailed_review.md
-        echo "---" >> detailed_review.md
-        echo "🤖 **この分析は GitHub Copilot の支援により自動生成されました。**" >> detailed_review.md
-        echo "さらに詳細なレビューが必要な場合は、PR内で \`@github-actions\` にメンションしてください。" >> detailed_review.md
-    
-    - name: Post detailed review
+    - name: Add Copilot-Related Labels
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh pr comment ${{ github.event.pull_request.number }} --body-file detailed_review.md
-        echo "✅ 詳細なコードレビューをPRに投稿しました"
-    
-    - name: Add review summary to PR
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        cat > review_summary.md << 'EOF'
-        ## 📋 レビューサマリー
+        # Copilot関連ラベルを追加
+        gh pr edit ${{ github.event.pull_request.number }} \
+          --add-label "copilot-reviewed" \
+          --add-label "ai-assisted" \
+          --repo ${{ github.repository }} || echo "ラベル追加をスキップ（ラベルが存在しない場合があります）"
         
-        🤖 **GitHub Copilot自動レビューが完了しました！**
-        
-        ### 📊 分析済み項目
-        - ✅ コード品質とベストプラクティス
-        - ✅ セキュリティ脆弱性チェック  
-        - ✅ パフォーマンス最適化の機会
-        - ✅ アクセシビリティとUX
-        - ✅ コードの可読性と保守性
-        
-        ### 🎯 レビューアクション
-        上記の詳細分析を確認し、提案された改善点を検討してください。
-        
-        **人間のレビュアーの皆さま**: 
-        自動分析に加えて、ビジネスロジックやユーザーエクスペリエンスの観点からもレビューをお願いします。
-        
-        ---
-        💬 質問や追加の分析が必要な場合は、コメントでお知らせください。
-        EOF
-        
-        gh pr comment ${{ github.event.pull_request.number }} --body-file review_summary.md
+        echo "✅ Copilot関連ラベルの追加を試行しました"
