@@ -166,21 +166,19 @@ jobs:
           # フォールバック提案（Copilot利用不可時）
           echo "**💫 基本的な改善提案:**" >> copilot_cli_review.md
           echo "" >> copilot_cli_review.md
-        fi
-          
-        echo "- 🎯 **モジュール化**: ゲームロジックを複数のクラスに分割" >> copilot_cli_review.md
+          echo "- 🎯 **モジュール化**: ゲームロジックを複数のクラスに分割" >> copilot_cli_review.md
           echo "- 🚀 **パフォーマンス**: requestAnimationFrame の最適化" >> copilot_cli_review.md
           echo "- 🧪 **テスト**: Jest によるユニットテスト追加" >> copilot_cli_review.md
           echo "- 🔒 **エラー処理**: try-catch文の適切な配置" >> copilot_cli_review.md
           echo "- 📱 **アクセシビリティ**: キーボード操作対応" >> copilot_cli_review.md
-          
           echo "" >> copilot_cli_review.md
-          
-          # 各ファイルについて個別に分析
-          echo "#### 📂 個別ファイル分析" >> copilot_cli_review.md
-          echo "" >> copilot_cli_review.md
-          
-          while IFS= read -r file; do
+        fi
+        
+        # 各ファイルについて個別に分析
+        echo "#### 📂 個別ファイル分析" >> copilot_cli_review.md
+        echo "" >> copilot_cli_review.md
+        
+        while IFS= read -r file; do
             if [ -f "$file" ] && [ -n "$file" ]; then
               echo "##### 📄 \`$file\`" >> copilot_cli_review.md
               echo "" >> copilot_cli_review.md
@@ -249,7 +247,7 @@ jobs:
               
               echo "" >> copilot_cli_review.md
             fi
-          done < <(echo "$CHANGED_FILES")
+        done < <(echo "$CHANGED_FILES")
         else
           echo "### ⚠️ GitHub Copilot CLI 未利用" >> copilot_cli_review.md
           echo "" >> copilot_cli_review.md
