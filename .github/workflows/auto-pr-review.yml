@@ -119,25 +119,51 @@ jobs:
     - name: Create Pull Request
       if: steps.check_pr.outputs.exists == 'false'
       id: create_pr
-      uses: peter-evans/create-pull-request@v5
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        title: "${{ steps.branch_info.outputs.pr_title }}"
-        body-path: "${{ steps.commit_summary.outputs.body_file }}"
-        base: ${{ steps.branch_info.outputs.base_branch }}
-        branch: ${{ steps.branch_info.outputs.branch_name }}
-        draft: false
-        delete-branch: false
-        labels: |
-          auto-generated
-          needs-review
-    
-    - name: Add labels to PR
-      if: steps.create_pr.outputs.pull-request-number != ''
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
+        BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
+        PR_TITLE="${{ steps.branch_info.outputs.pr_title }}"
+        
+        # PR本文ファイルの存在確認
+        if [ ! -f pr_body.md ]; then
+          echo "⚠️ pr_body.md が見つかりません。デフォルト本文を作成します。"
+          echo "## 🤖 自動生成されたPull Request" > pr_body.md
+          echo "" >> pr_body.md
+          echo "ブランチ \`$BRANCH_NAME\` から \`$BASE_BRANCH\` への変更をレビューしてください。" >> pr_body.md
+        fi
+        
+        # GitHub CLI でPRを作成
+        PR_URL=$(gh pr create \
+          --title "$PR_TITLE" \
+          --body-file pr_body.md \
+          --base "$BASE_BRANCH" \
+          --head "$BRANCH_NAME" \
+          --label "auto-generated,needs-review" \
+          --repo ${{ github.repository }})
+        
+        # PR番号を抽出
+        PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]\+$')
+        
+        echo "✅ PR #$PR_NUMBER が作成されました: $PR_URL"
+        echo "pull-request-number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        echo "pull-request-url=$PR_URL" >> $GITHUB_OUTPUT
+    
+    - name: Add labels to PR
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 新規作成されたPRまたは既存のPRの番号を取得
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+          echo "既存のPR #$PR_NUMBER にラベルを追加します"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+          echo "新規PR #$PR_NUMBER にラベルを追加します"
+        fi
+        
         BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
         
         # 追加のブランチ固有ラベル
@@ -158,11 +184,18 @@ jobs:
         fi
     
     - name: Request Copilot Code Review
-      if: steps.create_pr.outputs.pull-request-number != ''
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        # PR番号を取得
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+          echo "既存のPR #$PR_NUMBER にCopilotレビューを追加します"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+          echo "新規PR #$PR_NUMBER にCopilotレビューを追加します"
+        fi
         
         # GitHub Copilot による自動レビューコメント
         cat > copilot_review.md << 'EOF'
