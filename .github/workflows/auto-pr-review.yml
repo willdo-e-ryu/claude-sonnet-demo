@@ -187,6 +187,7 @@ jobs:
     
     - name: Basic code analysis
       id: code_analysis
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
       continue-on-error: true
       run: |
         # 基本的なコード分析（PR番号を取得）
@@ -281,14 +282,28 @@ jobs:
         gh pr comment "$PR_NUMBER" --body-file final_notification.md
     
     - name: Request GitHub Copilot Review
-      if: steps.create_pr.outputs.pull-request-number != ''
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        # PR番号を取得（新規作成または既存PR）
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+          echo "既存のPR #$PR_NUMBER に新しいCopilotレビューを要求します"
+          PR_STATUS="既存PRの更新"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+          echo "新規PR #$PR_NUMBER にCopilotレビューを要求します"
+          PR_STATUS="新規PR作成"
+        fi
         
-        cat > copilot_request.md << 'EOF'
-        ## 🤖 GitHub Copilot AI レビュー要求
+        # 現在の日時を取得
+        CURRENT_TIME=$(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')
+        
+        cat > copilot_request.md << EOF
+        ## 🤖 GitHub Copilot AI レビュー要求 ($PR_STATUS)
+        
+        **📅 要求日時**: $CURRENT_TIME
         
         @copilot このPRの包括的なコードレビューをお願いします。
         
@@ -326,15 +341,24 @@ jobs:
         3. **UI/UX** - ユーザーエクスペリエンスの向上提案
         4. **モジュール構造** - コードの保守性と拡張性
         
+        ### 🎮 ゲーム固有の質問
+        
+        @copilot 以下についても具体的なアドバイスをお願いします：
+        
+        - 現在のゲームバランス（パイプ間隔、鳥の動き）は適切ですか？
+        - Canvas サイズ400x600での描画パフォーマンスを向上させる方法は？
+        - ゲームオーバー画面のUXを改善するアイデアはありますか？
+        - モバイルデバイスでの操作性を向上させる方法は？
+        
         @copilot 詳細な分析と改善提案をよろしくお願いします！
         
         ---
-        *この要求は自動生成されました。追加の質問がある場合は、このPRでさらに @copilot にメンションしてください。*
+        *🔄 この要求は自動生成されました。追加の質問がある場合は、このPRでさらに @copilot にメンションしてください。*
         EOF
         
         # GitHub Copilot レビュー要求を投稿
         if gh pr comment "$PR_NUMBER" --body-file copilot_request.md; then
-          echo "✅ GitHub Copilot レビュー要求が投稿されました"
+          echo "✅ GitHub Copilot レビュー要求が投稿されました (PR #$PR_NUMBER)"
         else
           echo "⚠️ Copilot レビュー要求の投稿に失敗しました"
         fi
