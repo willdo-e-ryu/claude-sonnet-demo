@@ -225,7 +225,7 @@ jobs:
           echo "- **削除行数**: -$TOTAL_DELETIONS" >> basic_analysis.md
           echo "" >> basic_analysis.md
           echo "---" >> basic_analysis.md
-          echo "詳細なレビューは @copilot が実行します。" >> basic_analysis.md
+          echo "詳細なレビューは @Copilot が実行します。" >> basic_analysis.md
           
           # 分析結果をPRにコメント
           gh pr comment "$PR_NUMBER" --body-file basic_analysis.md
@@ -281,6 +281,43 @@ jobs:
         
         gh pr comment "$PR_NUMBER" --body-file final_notification.md
     
+    - name: Check for existing Copilot reviews
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
+      id: check_copilot_review
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # PR番号を取得
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        fi
+        
+        echo "🔍 PR #$PR_NUMBER でCopilotのレビューをチェックしています..."
+        
+        # PRのコメントを取得してCopilotのレビューがあるかチェック
+        COPILOT_COMMENTS=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[] | select(.author.login == "copilot" or .body | contains("@Copilot") or .body | contains("Copilot") or .body | contains("copilot")) | .body' || echo "")
+        
+        if [ -n "$COPILOT_COMMENTS" ]; then
+          echo "✅ Copilotのレビューまたはメンションが見つかりました"
+          echo "copilot_review_exists=true" >> $GITHUB_OUTPUT
+          
+          # Copilotの実際のレビュー応答があるかチェック
+          COPILOT_RESPONSE=$(echo "$COPILOT_COMMENTS" | grep -i "copilot" | head -5)
+          if [ -n "$COPILOT_RESPONSE" ]; then
+            echo "🤖 Copilotからの応答が確認されました"
+            echo "copilot_responded=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Copilotメンションはありますが、応答はまだありません"
+            echo "copilot_responded=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "📝 Copilotのレビューはまだありません"
+          echo "copilot_review_exists=false" >> $GITHUB_OUTPUT
+          echo "copilot_responded=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Request GitHub Copilot Review
       if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
       env:
@@ -300,12 +337,21 @@ jobs:
         # 現在の日時を取得
         CURRENT_TIME=$(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')
         
+        # Copilotレビューの存在状況に応じてメッセージを調整
+        if [ "${{ steps.check_copilot_review.outputs.copilot_responded }}" == "true" ]; then
+          echo "🔄 Copilotからの既存レビューに対する追加質問を送信します"
+          REVIEW_TYPE="追加レビュー要求"
+        else
+          echo "🆕 初回Copilotレビューを要求します"
+          REVIEW_TYPE="初回レビュー要求"
+        fi
+        
         cat > copilot_request.md << EOF
-        ## 🤖 GitHub Copilot AI レビュー要求 ($PR_STATUS)
+        ## 🤖 GitHub Copilot AI レビュー要求 ($PR_STATUS - $REVIEW_TYPE)
         
         **📅 要求日時**: $CURRENT_TIME
         
-        @copilot このPRの包括的なコードレビューをお願いします。
+        @Copilot このPRの包括的なコードレビューをお願いします。
         
         ### 📋 レビュー項目
         
@@ -343,17 +389,17 @@ jobs:
         
         ### 🎮 ゲーム固有の質問
         
-        @copilot 以下についても具体的なアドバイスをお願いします：
+        @Copilot 以下についても具体的なアドバイスをお願いします：
         
         - 現在のゲームバランス（パイプ間隔、鳥の動き）は適切ですか？
         - Canvas サイズ400x600での描画パフォーマンスを向上させる方法は？
         - ゲームオーバー画面のUXを改善するアイデアはありますか？
         - モバイルデバイスでの操作性を向上させる方法は？
         
-        @copilot 詳細な分析と改善提案をよろしくお願いします！
+        @Copilot 詳細な分析と改善提案をよろしくお願いします！
         
         ---
-        *🔄 この要求は自動生成されました。追加の質問がある場合は、このPRでさらに @copilot にメンションしてください。*
+        *🔄 この要求は自動生成されました。追加の質問がある場合は、このPRでさらに @Copilot にメンションしてください。*
         EOF
         
         # GitHub Copilot レビュー要求を投稿
@@ -361,4 +407,53 @@ jobs:
           echo "✅ GitHub Copilot レビュー要求が投稿されました (PR #$PR_NUMBER)"
         else
           echo "⚠️ Copilot レビュー要求の投稿に失敗しました"
+        fi
+    
+    - name: Follow-up Copilot Review Request
+      if: (steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true') && steps.check_copilot_review.outputs.copilot_responded == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # PR番号を取得
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        fi
+        
+        echo "🔄 Copilotの既存レビューに対するフォローアップ質問を送信します"
+        
+        # 少し待機してから追加質問を送信（レート制限対策）
+        sleep 10
+        
+        cat > copilot_followup.md << 'EOF'
+        ## 🔍 追加レビュー質問
+        
+        @Copilot ありがとうございます！既存のレビューを踏まえて、以下の追加質問があります：
+        
+        ### 🎯 具体的な改善提案をお願いします
+        
+        1. **優先度の高い改善点**は何ですか？
+        2. **すぐに実装できる小さな改善**はありますか？
+        3. **長期的なリファクタリング**で検討すべき点は？
+        4. **パフォーマンス最適化**の具体的な手順は？
+        5. **セキュリティ強化**で追加すべき機能は？
+        
+        ### 🧪 テスト戦略について
+        
+        @Copilot このFlappy Birdゲームに適したテスト戦略と、実装すべきテストケースを教えてください。
+        
+        ### 🚀 次のステップ
+        
+        @Copilot 現在のコードベースを改善するための具体的なロードマップを提案してください。
+        
+        ---
+        *🤖 フォローアップ質問は自動生成されました*
+        EOF
+        
+        # フォローアップ質問を投稿
+        if gh pr comment "$PR_NUMBER" --body-file copilot_followup.md; then
+          echo "✅ Copilot フォローアップ質問が投稿されました"
+        else
+          echo "⚠️ フォローアップ質問の投稿に失敗しました"
         fi
