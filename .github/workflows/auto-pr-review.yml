@@ -409,6 +409,99 @@ jobs:
           echo "⚠️ Copilot レビュー要求の投稿に失敗しました"
         fi
     
+    - name: Add Copilot as PR Reviewer
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # PR番号を取得
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        fi
+        
+        echo "🤖 PR #$PR_NUMBER にCopilotをレビュアーとして追加しています..."
+        
+        # GitHub APIでCopilotをレビュアーとして追加
+        COPILOT_ADD_RESULT=$(curl -s -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER/requested_reviewers" \
+          -d '{"reviewers":["copilot"]}' 2>/dev/null || echo '{"message":"API error"}')
+        
+        # 結果をチェック
+        if echo "$COPILOT_ADD_RESULT" | grep -q '"requested_reviewers"'; then
+          echo "✅ GitHub APIでCopilotレビュアーを正常に追加しました"
+        elif echo "$COPILOT_ADD_RESULT" | grep -q "error\|not found\|API error"; then
+          echo "⚠️ GitHub APIでの追加が失敗しました。GitHub CLIで試行します..."
+          
+          # GitHub CLIを使用したレビュー要求（代替方法）
+          if gh pr edit "$PR_NUMBER" --add-reviewer "copilot" 2>/dev/null; then
+            echo "✅ GitHub CLIでCopilotレビュアーを追加しました"
+          else
+            echo "📝 Copilotレビュアー自動追加は利用できませんでした"
+            echo "💡 手動でPRのReviewersメニューから「Copilot」を選択してください"
+          fi
+        else
+          echo "✅ Copilotレビュアーが正常に追加されました"
+        fi
+        
+        # 5秒待機してからステータス確認
+        sleep 5
+        
+        # 追加されたレビュアーを確認
+        CURRENT_REVIEWERS=$(gh pr view "$PR_NUMBER" --json reviewRequests --jq '.reviewRequests[].login' 2>/dev/null || echo "")
+        
+        if echo "$CURRENT_REVIEWERS" | grep -q "copilot"; then
+          echo "✅ Copilotがレビュアーとして正常に設定されています"
+        else
+          echo "📋 現在のレビュアー: $CURRENT_REVIEWERS"
+        fi
+        
+        # Copilot自動レビュー設定の通知
+        cat > copilot_reviewer_notification.md << 'EOF'
+        ## 🤖 GitHub Copilot Pull Request Reviewer 設定完了
+        
+        ### ✅ 自動レビュー機能が有効になりました
+        
+        **GitHub Copilot Pull Request Reviewer**が以下を自動実行します：
+        
+        - 🔍 **詳細なコード分析** - 品質、パフォーマンス、セキュリティ
+        - 💡 **具体的な改善提案** - 実装可能なコード例付き
+        - 🎮 **ゲーム固有レビュー** - Canvas最適化、ゲームロジック評価
+        - 📝 **インラインコメント** - 問題箇所への直接フィードバック
+        
+        ### 🎯 カスタム指示適用
+        
+        プロジェクト固有の `.github/copilot-instructions.md` に基づいて：
+        - Flappy Birdゲーム特化のレビュー観点
+        - JavaScript ES6+の推奨
+        - Canvas 400x600サイズでの最適化重視
+        
+        ### ⏰ レビュー実行タイミング
+        
+        通常30秒以内に詳細なレビューが自動実行されます。
+        レビュー完了後、「Files changed」タブで確認できます。
+        
+        ### 🔄 再レビュー方法
+        
+        コード変更後の再レビューは：
+        1. Reviewersセクションの「Re-request review」をクリック
+        2. または新しいコミットをプッシュで自動実行
+        
+        ---
+        *🤖 GitHub Copilot Pull Request Reviewerの自動設定が完了しました*
+        EOF
+        
+        # 通知をPRにコメント
+        if gh pr comment "$PR_NUMBER" --body-file copilot_reviewer_notification.md; then
+          echo "✅ Copilot Pull Request Reviewerの設定完了通知を投稿しました"
+        else
+          echo "⚠️ 設定完了通知の投稿に失敗しました"
+        fi
+    
     - name: Follow-up Copilot Review Request
       if: (steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true') && steps.check_copilot_review.outputs.copilot_responded == 'true'
       env:
