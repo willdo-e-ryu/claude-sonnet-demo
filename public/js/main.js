@@ -1,10 +1,10 @@
 /**
- * Flappy Bird Clone - メインゲームループ
- * ES Modules を使用したモジュラー設計
+ * メインゲームファイル
+ * Flappy Bird Clone
  */
 
 import { CONFIG } from './config.js';
-import { setupHiDPI, updateDebugInfo, FPSCounter } from './utils.js';
+import { setupHiDPI, drawDebugInfo, FPSCounter } from './utils.js';
 import { InputManager } from './input.js';
 import { GameStateManager } from './state.js';
 import { Bird } from './bird.js';
@@ -54,10 +54,14 @@ class Game {
             throw new Error('Canvas要素が見つかりません');
         }
         
+        // キャンバスの実際の描画解像度を設定
+        this.canvas.width = CONFIG.CANVAS_WIDTH;
+        this.canvas.height = CONFIG.CANVAS_HEIGHT;
+        
         // 高DPI対応
         setupHiDPI(this.canvas, this.ctx, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT);
         
-        // キャンバスのスタイル調整（レスポンシブ対応）
+        // キャンバスの表示サイズ調整（レスポンシブ対応）
         this.adjustCanvasSize();
         window.addEventListener('resize', () => this.adjustCanvasSize());
     }
@@ -66,31 +70,40 @@ class Game {
      * キャンバスサイズの調整（レスポンシブ対応）
      */
     adjustCanvasSize() {
-        const container = document.getElementById('gameContainer');
-        const containerWidth = container.clientWidth;
-        const containerHeight = container.clientHeight;
+        // 画面全体のサイズを基準にする
+        const screenWidth = window.innerWidth;
+        const screenHeight = window.innerHeight;
         
         // アスペクト比を維持しながら最大サイズを計算
         const aspectRatio = CONFIG.CANVAS_WIDTH / CONFIG.CANVAS_HEIGHT;
-        let canvasWidth, canvasHeight;
+        let displayWidth, displayHeight;
         
-        if (containerWidth / containerHeight > aspectRatio) {
+        // 画面の90%を使用（400x600に最適化）
+        if (screenWidth / screenHeight > aspectRatio) {
             // 高さ基準
-            canvasHeight = containerHeight * 0.9; // 少しマージンを取る
-            canvasWidth = canvasHeight * aspectRatio;
+            displayHeight = screenHeight * 0.90;
+            displayWidth = displayHeight * aspectRatio;
         } else {
-            // 幅基準
-            canvasWidth = containerWidth * 0.9;
-            canvasHeight = canvasWidth / aspectRatio;
+            // 幅基準  
+            displayWidth = screenWidth * 0.90;
+            displayHeight = displayWidth / aspectRatio;
         }
         
-        // 最小サイズの制限
-        canvasWidth = Math.max(canvasWidth, 320);
-        canvasHeight = Math.max(canvasHeight, 480);
+        // 400x600に適した最小サイズを設定
+        displayWidth = Math.max(displayWidth, 300);
+        displayHeight = Math.max(displayHeight, 450);
         
-        // キャンバスのスタイルを更新
-        this.canvas.style.width = canvasWidth + 'px';
-        this.canvas.style.height = canvasHeight + 'px';
+        // 最大サイズの制限も追加
+        displayWidth = Math.min(displayWidth, 600);
+        displayHeight = Math.min(displayHeight, 900);
+        
+        // キャンバスの表示サイズを更新（描画解像度は変更しない）
+        this.canvas.style.width = displayWidth + 'px';
+        this.canvas.style.height = displayHeight + 'px';
+        
+        // スケール係数を計算（座標変換用）
+        this.displayScaleX = displayWidth / CONFIG.CANVAS_WIDTH;
+        this.displayScaleY = displayHeight / CONFIG.CANVAS_HEIGHT;
     }
     
     /**
@@ -109,7 +122,7 @@ class Game {
         
         // スコア追加
         document.addEventListener('scoreAdded', (e) => {
-            console.log('Score added:', e.detail);
+            // スコア追加の処理
         });
         
         // ページの可視性変更（タブ切り替え等）
@@ -189,15 +202,18 @@ class Game {
         // 描画処理
         this.draw();
         
-        // デバッグ情報更新
+        // デバッグ情報をキャンバスに描画
         if (CONFIG.DEBUG) {
             const debugData = {
                 ...performanceData,
                 deltaTime: Math.round(deltaTime * 10) / 10,
                 ...this.bird.getDebugInfo(),
-                pipeCount: this.pipeManager.getPipeCount()
+                pipeCount: this.pipeManager.getPipeCount(),
+                pipeSpeed: Math.round(this.pipeManager.getCurrentSpeed() * 100) / 100,
+                gapSize: Math.round(this.pipeManager.getCurrentGapSize()),
+                spawnInterval: Math.round(this.pipeManager.getCurrentSpawnInterval())
             };
-            updateDebugInfo(debugData);
+            drawDebugInfo(this.ctx, debugData);
         }
         
         // 次のフレームを予約
@@ -228,7 +244,10 @@ class Game {
                 }
                 
                 // スコア計算
-                const newScore = this.pipeManager.checkScoring(this.bird.x + CONFIG.BIRD.WIDTH);
+                const newScore = this.pipeManager.checkScoring(
+                    this.bird.x + CONFIG.BIRD.WIDTH, 
+                    this.scoreManager.currentScore
+                );
                 if (newScore > 0) {
                     this.scoreManager.addScore(newScore);
                 }
@@ -255,9 +274,11 @@ class Game {
         // 鳥描画
         this.bird.draw(this.ctx);
         
-        // ポーズ状態の表示
+        // ゲーム状態に応じた表示
         if (this.gameStateManager.isPaused()) {
             this.drawPauseOverlay();
+        } else if (this.gameStateManager.isGameOver()) {
+            this.drawGameOverOverlay();
         }
     }
     
@@ -290,9 +311,10 @@ class Game {
      */
     drawClouds() {
         const cloudPositions = [
-            { x: 100, y: 80, scale: 1 },
-            { x: 300, y: 120, scale: 0.8 },
-            { x: 200, y: 180, scale: 0.6 }
+            { x: 80, y: 60, scale: 1 },
+            { x: 220, y: 100, scale: 0.8 },
+            { x: 320, y: 80, scale: 0.6 },
+            { x: 150, y: 140, scale: 0.7 }
         ];
         
         this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
@@ -351,16 +373,50 @@ class Game {
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
         this.ctx.fillRect(0, 0, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT);
         
-        // ポーズテキスト
+        // ポーズテキスト（400px幅に合わせて調整）
         this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = 'bold 48px Arial';
+        this.ctx.font = 'bold 36px Arial';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         this.ctx.fillText('PAUSED', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2);
         
         // 再開方法の説明
-        this.ctx.font = '24px Arial';
-        this.ctx.fillText('Press P to resume', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 60);
+        this.ctx.font = '18px Arial';
+        this.ctx.fillText('Press P to resume', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 50);
+    }
+    
+    /**
+     * Game Overオーバーレイの描画
+     */
+    drawGameOverOverlay() {
+        // 半透明オーバーレイ
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        this.ctx.fillRect(0, 0, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT);
+        
+        // Game Overテキスト（400px幅に合わせて調整）
+        this.ctx.fillStyle = '#ff4444';
+        this.ctx.font = 'bold 48px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.strokeStyle = '#ffffff';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeText('GAME OVER', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 - 50);
+        this.ctx.fillText('GAME OVER', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 - 50);
+        
+        // 最終スコア表示
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.font = 'bold 24px Arial';
+        this.ctx.fillText(`Score: ${this.scoreManager.currentScore}`, CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 20);
+        
+        // ベストスコア表示
+        this.ctx.font = '22px Arial';
+        this.ctx.fillStyle = '#ffff88';
+        this.ctx.fillText(`Best: ${this.scoreManager.bestScore}`, CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 50);
+        
+        // 再開方法の説明
+        this.ctx.font = '18px Arial';
+        this.ctx.fillStyle = '#cccccc';
+        this.ctx.fillText('Press SPACE to restart', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 90);
     }
     
     /**
@@ -389,8 +445,6 @@ function initializeGame() {
         
         // ゲーム開始
         window.game = new Game();
-        
-        console.log('Flappy Bird Clone initialized successfully!');
         
     } catch (error) {
         console.error('ゲームの初期化に失敗しました:', error);

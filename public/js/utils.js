@@ -86,16 +86,12 @@ export function setupHiDPI(canvas, ctx, width, height) {
 }
 
 /**
- * デバッグ情報の表示
+ * デバッグ情報をキャンバスに描画
+ * @param {CanvasRenderingContext2D} ctx - 描画コンテキスト
  * @param {Object} debugData - デバッグ情報オブジェクト
  */
-export function updateDebugInfo(debugData) {
+export function drawDebugInfo(ctx, debugData) {
     if (!CONFIG.DEBUG) return;
-    
-    const debugElement = document.getElementById('debugInfo');
-    if (!debugElement) return;
-    
-    debugElement.classList.remove('debug-hidden');
     
     const lines = [
         `FPS: ${debugData.fps || 0}`,
@@ -103,19 +99,41 @@ export function updateDebugInfo(debugData) {
         `Delta: ${debugData.deltaTime || 0}ms`,
         `Bird Y: ${debugData.birdY || 0}`,
         `Velocity: ${debugData.birdVelocity || 0}`,
-        `Pipes: ${debugData.pipeCount || 0}`
+        `Pipes: ${debugData.pipeCount || 0}`,
+        `Speed: ${debugData.pipeSpeed || 0}`,
+        `Gap: ${debugData.gapSize || 0}`,
+        `Interval: ${debugData.spawnInterval || 0}`
     ];
     
-    // セキュリティのためinnerHTMLの代わりに安全なDOM操作を使用
-    debugElement.textContent = '';
+    // デバッグ情報の背景
+    const padding = 10;
+    const lineHeight = 18;
+    const maxWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
+    const backgroundHeight = lines.length * lineHeight + padding * 2;
+    
+    // 半透明の背景を描画
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(10, 10, maxWidth + padding * 2, backgroundHeight);
+    
+    // テキストスタイル設定
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    
+    // 各行を描画
     lines.forEach((line, index) => {
-        const span = document.createElement('span');
-        span.textContent = line;
-        debugElement.appendChild(span);
-        if (index < lines.length - 1) {
-            debugElement.appendChild(document.createElement('br'));
-        }
+        ctx.fillText(line, 20, 20 + index * lineHeight);
     });
+}
+
+/**
+ * デバッグ情報の表示（旧関数 - 後方互換性のため残す）
+ * @param {Object} debugData - デバッグ情報オブジェクト
+ */
+export function updateDebugInfo(debugData) {
+    // この関数は使用されなくなりましたが、後方互換性のため残します
+    // 実際の描画はdrawDebugInfo関数で行います
 }
 
 /**

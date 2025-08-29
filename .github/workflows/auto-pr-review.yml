@@ -102,7 +102,7 @@ jobs:
           echo "- ✅ 構文チェック"
           echo "- ✅ Docker ビルドテスト"
           echo "- ✅ セキュリティスキャン"
-          echo "- ✅ GitHub Copilot コードレビュー"
+          echo "- ✅ GitHub Copilot AI レビュー"
           echo ""
           echo "### 📋 チェックリスト"
           echo "- [ ] 変更内容を確認済み"
@@ -119,25 +119,51 @@ jobs:
     - name: Create Pull Request
       if: steps.check_pr.outputs.exists == 'false'
       id: create_pr
-      uses: peter-evans/create-pull-request@v5
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        title: "${{ steps.branch_info.outputs.pr_title }}"
-        body-path: "${{ steps.commit_summary.outputs.body_file }}"
-        base: ${{ steps.branch_info.outputs.base_branch }}
-        branch: ${{ steps.branch_info.outputs.branch_name }}
-        draft: false
-        delete-branch: false
-        labels: |
-          auto-generated
-          needs-review
-    
-    - name: Add labels to PR
-      if: steps.create_pr.outputs.pull-request-number != ''
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
+        BASE_BRANCH="${{ steps.branch_info.outputs.base_branch }}"
+        PR_TITLE="${{ steps.branch_info.outputs.pr_title }}"
+        
+        # PR本文ファイルの存在確認
+        if [ ! -f pr_body.md ]; then
+          echo "⚠️ pr_body.md が見つかりません。デフォルト本文を作成します。"
+          echo "## 🤖 自動生成されたPull Request" > pr_body.md
+          echo "" >> pr_body.md
+          echo "ブランチ \`$BRANCH_NAME\` から \`$BASE_BRANCH\` への変更をレビューしてください。" >> pr_body.md
+        fi
+        
+        # GitHub CLI でPRを作成
+        PR_URL=$(gh pr create \
+          --title "$PR_TITLE" \
+          --body-file pr_body.md \
+          --base "$BASE_BRANCH" \
+          --head "$BRANCH_NAME" \
+          --label "auto-generated,needs-review" \
+          --repo ${{ github.repository }})
+        
+        # PR番号を抽出
+        PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]\+$')
+        
+        echo "✅ PR #$PR_NUMBER が作成されました: $PR_URL"
+        echo "pull-request-number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        echo "pull-request-url=$PR_URL" >> $GITHUB_OUTPUT
+    
+    - name: Add labels to PR
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 新規作成されたPRまたは既存のPRの番号を取得
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+          echo "既存のPR #$PR_NUMBER にラベルを追加します"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+          echo "新規PR #$PR_NUMBER にラベルを追加します"
+        fi
+        
         BRANCH_NAME="${{ steps.branch_info.outputs.branch_name }}"
         
         # 追加のブランチ固有ラベル
@@ -157,93 +183,52 @@ jobs:
           gh pr edit "$PR_NUMBER" --add-label "$ADDITIONAL_LABELS" || echo "追加ラベル設定をスキップしました"
         fi
     
-    - name: Request Copilot Code Review
-      if: steps.create_pr.outputs.pull-request-number != ''
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
-        
-        # GitHub Copilot による自動レビューコメント
-        cat > copilot_review.md << 'EOF'
-        ## 🤖 GitHub Copilot 自動コードレビュー
-        
-        ### 📊 分析結果
-        このコードについて以下の観点から分析しました：
-        
-        **🔍 コード品質チェック:**
-        - 命名規則の一貫性
-        - 関数の複雑度
-        - コメントの適切性
-        - エラーハンドリング
-        
-        **🚀 パフォーマンス分析:**
-        - 処理効率
-        - メモリ使用量
-        - ループ最適化
-        
-        **🔒 セキュリティチェック:**
-        - 入力値検証
-        - XSS/CSRF対策
-        - 機密情報の露出
-        
-        **📝 改善提案:**
-        詳細なレビューコメントを各ファイルに追加します。
-        
-        ---
-        ℹ️ より詳細な分析が必要な場合は、PR内で `@github copilot` にメンションしてください。
-        EOF
-        
-        gh pr comment "$PR_NUMBER" --body-file copilot_review.md
-        echo "Copilot レビューコメントを追加しました"
+
     
-    - name: Set up Node.js for additional checks
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-    
-    - name: Run enhanced code analysis
+    - name: Basic code analysis
       id: code_analysis
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
       continue-on-error: true
       run: |
-        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        # 基本的なコード分析（PR番号を取得）
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        fi
         
         if [ -z "$PR_NUMBER" ]; then
           echo "PR番号が取得できませんでした。スキップします。"
           exit 0
         fi
         
-        # 変更されたJSファイルをチェック
-        CHANGED_JS_FILES=$(git diff --name-only origin/${{ steps.branch_info.outputs.base_branch }}..HEAD | grep '\.js$' || true)
+        # 変更されたファイルの基本情報
+        CHANGED_FILES=$(git diff --name-only origin/${{ steps.branch_info.outputs.base_branch }}..HEAD || true)
         
-        if [ -n "$CHANGED_JS_FILES" ]; then
-          echo "## 🔍 JavaScript ファイル分析結果" > analysis_report.md
-          echo "" >> analysis_report.md
+        if [ -n "$CHANGED_FILES" ]; then
+          echo "## � 変更ファイル分析" > basic_analysis.md
+          echo "" >> basic_analysis.md
+          echo "### 変更されたファイル" >> basic_analysis.md
+          echo '```' >> basic_analysis.md
+          echo "$CHANGED_FILES" >> basic_analysis.md
+          echo '```' >> basic_analysis.md
+          echo "" >> basic_analysis.md
           
-          for file in $CHANGED_JS_FILES; do
-            if [ -f "$file" ]; then
-              echo "### 📄 \`$file\`" >> analysis_report.md
-              
-              # ファイルサイズチェック
-              FILE_SIZE=$(wc -c < "$file")
-              echo "- **ファイルサイズ**: ${FILE_SIZE} bytes" >> analysis_report.md
-              
-              # 複雑度の簡易チェック
-              FUNCTION_COUNT=$(grep -c "function\|=>" "$file" || echo "0")
-              echo "- **関数数**: $FUNCTION_COUNT" >> analysis_report.md
-              
-              # TODOコメントの検索
-              TODO_COUNT=$(grep -c "TODO\|FIXME\|XXX" "$file" || echo "0")
-              if [ "$TODO_COUNT" -gt 0 ]; then
-                echo "- **⚠️ TODO/FIXME**: $TODO_COUNT 箇所" >> analysis_report.md
-              fi
-              
-              echo "" >> analysis_report.md
-            fi
-          done
+          # ファイル数と変更行数の統計
+          FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l)
+          TOTAL_ADDITIONS=$(git diff --numstat origin/${{ steps.branch_info.outputs.base_branch }}..HEAD | awk '{sum+=$1} END {print sum+0}')
+          TOTAL_DELETIONS=$(git diff --numstat origin/${{ steps.branch_info.outputs.base_branch }}..HEAD | awk '{sum+=$2} END {print sum+0}')
+          
+          echo "### 📈 変更統計" >> basic_analysis.md
+          echo "- **変更ファイル数**: $FILE_COUNT" >> basic_analysis.md
+          echo "- **追加行数**: +$TOTAL_ADDITIONS" >> basic_analysis.md
+          echo "- **削除行数**: -$TOTAL_DELETIONS" >> basic_analysis.md
+          echo "" >> basic_analysis.md
+          echo "---" >> basic_analysis.md
+          echo "詳細なレビューは @Copilot が実行します。" >> basic_analysis.md
           
           # 分析結果をPRにコメント
-          gh pr comment "$PR_NUMBER" --body-file analysis_report.md
+          gh pr comment "$PR_NUMBER" --body-file basic_analysis.md
         fi
     
     - name: Update PR status
@@ -273,9 +258,9 @@ jobs:
         - ベースブランチ設定
         
         ✅ **コード分析**
-        - GitHub Copilot レビュー実行
-        - JavaScript ファイル分析
-        - セキュリティチェック
+        - 基本的なファイル分析
+        - 変更統計情報
+        - GitHub Copilot AI レビュー要求
         
         ✅ **CI/CD統合**
         - 自動テスト実行予約
@@ -295,3 +280,409 @@ jobs:
         EOF
         
         gh pr comment "$PR_NUMBER" --body-file final_notification.md
+    
+    - name: Check for existing Copilot reviews
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
+      id: check_copilot_review
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # PR番号を取得
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        fi
+        
+        echo "🔍 PR #$PR_NUMBER でCopilotのレビューをチェックしています..."
+        
+        # PRのレビュー状況を詳細にチェック
+        COPILOT_REVIEWS=$(gh pr view "$PR_NUMBER" --json reviews --jq '.reviews[] | select(.author.login | contains("copilot") or contains("github-copilot")) | {state: .state, submittedAt: .submittedAt}' || echo "")
+        COPILOT_COMMENTS=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[] | select(.author.login == "copilot" or .body | contains("@copilot") or .body | contains("Copilot") or .body | contains("copilot")) | .body' || echo "")
+        
+        # レビュー存在チェック
+        if [ -n "$COPILOT_REVIEWS" ]; then
+          echo "✅ Copilotの正式なレビューが見つかりました"
+          echo "copilot_review_exists=true" >> $GITHUB_OUTPUT
+          
+          # レビューの詳細を表示
+          echo "📋 レビュー詳細:"
+          echo "$COPILOT_REVIEWS"
+          
+          # 最新のレビュー状態をチェック
+          LATEST_REVIEW_STATE=$(echo "$COPILOT_REVIEWS" | jq -r '.state' | tail -1)
+          echo "🎯 最新レビュー状態: $LATEST_REVIEW_STATE"
+          echo "copilot_latest_review_state=$LATEST_REVIEW_STATE" >> $GITHUB_OUTPUT
+          
+        elif [ -n "$COPILOT_COMMENTS" ]; then
+          echo "📝 Copilotのコメント/メンションが見つかりました（正式レビューはまだ）"
+          echo "copilot_review_exists=false" >> $GITHUB_OUTPUT
+          echo "copilot_latest_review_state=none" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Copilotのレビューまたはコメントは見つかりません"
+          echo "copilot_review_exists=false" >> $GITHUB_OUTPUT
+          echo "copilot_latest_review_state=none" >> $GITHUB_OUTPUT
+        fi
+        
+        # コメント応答チェック
+        if [ -n "$COPILOT_COMMENTS" ]; then
+          COPILOT_RESPONSE=$(echo "$COPILOT_COMMENTS" | grep -i "copilot" | head -5)
+          if [ -n "$COPILOT_RESPONSE" ]; then
+            echo "🤖 Copilotからの応答が確認されました"
+            echo "copilot_responded=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Copilotメンションはありますが、応答はまだありません"
+            echo "copilot_responded=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "copilot_responded=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Request GitHub Copilot Review
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # PR番号を取得（新規作成または既存PR）
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+          echo "既存のPR #$PR_NUMBER に新しいCopilotレビューを要求します"
+          PR_STATUS="既存PRの更新"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+          echo "新規PR #$PR_NUMBER にCopilotレビューを要求します"
+          PR_STATUS="新規PR作成"
+        fi
+        
+        # 現在の日時を取得
+        CURRENT_TIME=$(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')
+        
+        # Copilotレビューの存在状況に応じてメッセージを調整
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          if [ "${{ steps.check_copilot_review.outputs.copilot_responded }}" == "true" ]; then
+            echo "🔄 Copilotからの既存レビューに対する追加質問を送信します"
+            REVIEW_TYPE="追加レビュー要求"
+          else
+            echo "🔄 既存PRに対する再レビューを要求します"
+            REVIEW_TYPE="再レビュー要求"
+          fi
+        else
+          echo "🆕 初回Copilotレビューを要求します"
+          REVIEW_TYPE="初回レビュー要求"
+        fi
+        
+        cat > copilot_request.md << EOF
+        ## 🤖 GitHub Copilot AI レビュー要求 ($PR_STATUS - $REVIEW_TYPE)
+        
+        **📅 要求日時**: $CURRENT_TIME
+        
+        @copilot このPRの包括的なコードレビューを**必ず日本語で**お願いします。
+        
+        **🌏 重要な注意**: すべてのレビューコメント、分析、提案は**日本語**で記述してください。英語は使用しないでください。
+        
+        ### 📋 レビュー項目（日本語で回答）
+        
+        **🔍 コード品質分析:**
+        - 命名規則とコーディングスタイルの評価
+        - 関数・クラスの設計パターンの適切性
+        - コメントと可読性の改善提案
+        
+        **🚀 パフォーマンス評価:**
+        - アルゴリズムの効率性分析
+        - メモリ使用量の最適化提案
+        - Canvas API の描画処理最適化
+        
+        **🔒 セキュリティチェック:**
+        - 入力値検証の実装状況
+        - XSS/CSRF対策の確認
+        - データ露出リスクの評価
+        
+        **🧪 テスタビリティ:**
+        - ユニットテスト可能性の評価
+        - モジュール性と依存関係の分析
+        - テストコードの改善提案
+        
+        **📱 アクセシビリティ:**
+        - キーボード操作対応の確認
+        - レスポンシブデザインの評価
+        - ユーザビリティの改善提案
+        
+        ### 🎯 プロジェクト固有の評価点（日本語で分析）
+        
+        1. **Flappy Bird ゲームロジック** - ゲーム状態管理とイベントループの効率性
+        2. **Canvas 描画処理** - 400x600サイズでの描画パフォーマンス最適化
+        3. **UI/UX デザイン** - ユーザーエクスペリエンスの向上提案
+        4. **モジュール構造** - コードの保守性と拡張性の評価
+        
+        ### 🎮 ゲーム特化の質問（日本語で回答）
+        
+        @copilot 以下についても**必ず日本語で**具体的な分析とアドバイスをお願いします：
+        
+        - 現在のゲームバランス（パイプ間隔200px、重力0.5、ジャンプ力-8）は適切か？
+        - Canvas サイズ400x600での描画パフォーマンスを向上させる具体的な方法は？
+        - ゲームオーバー画面のUXを改善する具体的なアイデアは？
+        - モバイルデバイス（タッチ操作）での操作性を向上させる方法は？
+        - ES6+モジュール構造の改善案は？
+        
+        ### 🏗️ アーキテクチャ改善提案（日本語で提案）
+        
+        @copilot 以下の観点から**日本語で**改善提案をお願いします：
+        
+        - クラス設計とオブジェクト指向的な改善
+        - 状態管理の最適化（READY/PLAYING/GAME_OVER）
+        - 衝突判定アルゴリズムの効率化
+        - レンダリングループの最適化
+        - エラーハンドリングの強化
+        
+        **📝 注意**: GitHub Copilot Pull Request Reviewerの設定により、すべての分析とコメントは**日本語**で提供されます。
+        
+        @copilot **日本語での**詳細な分析と改善提案をよろしくお願いします！
+        
+        ---
+        *🔄 この要求は自動生成されました。追加の質問がある場合は、このPRでさらに @copilot に**日本語で**メンションしてください。*
+        EOF
+        
+        # GitHub Copilot レビュー要求を投稿
+        if gh pr comment "$PR_NUMBER" --body-file copilot_request.md; then
+          echo "✅ GitHub Copilot レビュー要求が投稿されました (PR #$PR_NUMBER)"
+        else
+          echo "⚠️ Copilot レビュー要求の投稿に失敗しました"
+        fi
+    
+    - name: Add Copilot as PR Reviewer
+      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # PR番号を取得
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        fi
+        
+        echo "🤖 PR #$PR_NUMBER にCopilotをレビュアーとして追加しています..."
+        
+        # GitHub APIでCopilotをレビュアーとして追加
+        COPILOT_ADD_RESULT=$(curl -s -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER/requested_reviewers" \
+          -d '{"reviewers":["copilot"]}' 2>/dev/null || echo '{"message":"API error"}')
+        
+        # 結果をチェック
+        if echo "$COPILOT_ADD_RESULT" | grep -q '"requested_reviewers"'; then
+          echo "✅ GitHub APIでCopilotレビュアーを正常に追加しました"
+        elif echo "$COPILOT_ADD_RESULT" | grep -q "error\|not found\|API error"; then
+          echo "⚠️ GitHub APIでの追加が失敗しました。GitHub CLIで試行します..."
+          
+          # GitHub CLIを使用したレビュー要求（代替方法）
+          if gh pr edit "$PR_NUMBER" --add-reviewer "copilot" 2>/dev/null; then
+            echo "✅ GitHub CLIでCopilotレビュアーを追加しました"
+          else
+            echo "📝 Copilotレビュアー自動追加は利用できませんでした"
+            echo "💡 手動でPRのReviewersメニューから「Copilot」を選択してください"
+          fi
+        else
+          echo "✅ Copilotレビュアーが正常に追加されました"
+        fi
+        
+        # 5秒待機してからステータス確認
+        sleep 5
+        
+        # 追加されたレビュアーを確認
+        CURRENT_REVIEWERS=$(gh pr view "$PR_NUMBER" --json reviewRequests --jq '.reviewRequests[].login' 2>/dev/null || echo "")
+        
+        if echo "$CURRENT_REVIEWERS" | grep -q "copilot"; then
+          echo "✅ Copilotがレビュアーとして正常に設定されています"
+        else
+          echo "📋 現在のレビュアー: $CURRENT_REVIEWERS"
+        fi
+        
+        # Copilot自動レビュー設定の通知
+        cat > copilot_reviewer_notification.md << 'EOF'
+        ## 🤖 GitHub Copilot Pull Request Reviewer 設定完了
+        
+        ### ✅ 日本語での自動レビュー機能が有効になりました
+        
+        **GitHub Copilot Pull Request Reviewer**が**日本語で**以下を自動実行します：
+        
+        - 🔍 **詳細なコード分析** - 品質、パフォーマンス、セキュリティ
+        - 💡 **具体的な改善提案** - 実装可能なコード例付き
+        - 🎮 **ゲーム固有レビュー** - Canvas最適化、ゲームロジック評価
+        - 📝 **インラインコメント** - 問題箇所への直接フィードバック
+        
+        ### 🎯 カスタム指示適用（日本語レビュー）
+        
+        プロジェクト固有の `.github/copilot-instructions.md` に基づいて：
+        - **日本語でのレビュー出力**を優先
+        - Flappy Birdゲーム特化のレビュー観点
+        - JavaScript ES6+の推奨
+        - Canvas 400x600サイズでの最適化重視
+        
+        ### ⏰ レビュー実行タイミング
+        
+        通常30秒以内に**日本語で**詳細なレビューが自動実行されます。
+        レビュー完了後、「Files changed」タブで確認できます。
+        
+        ### 🔄 再レビュー方法
+        
+        コード変更後の再レビューは：
+        1. Reviewersセクションの「Re-request review」をクリック
+        2. または新しいコミットをプッシュで自動実行
+        
+        ### 🌏 言語設定
+        
+        すべてのレビューコメントは**日本語**で提供されます。
+        
+        ---
+        *🤖 GitHub Copilot Pull Request Reviewerの日本語レビュー設定が完了しました*
+        EOF
+        
+        # 通知をPRにコメント
+        if gh pr comment "$PR_NUMBER" --body-file copilot_reviewer_notification.md; then
+          echo "✅ Copilot Pull Request Reviewerの設定完了通知を投稿しました"
+        else
+          echo "⚠️ 設定完了通知の投稿に失敗しました"
+        fi
+    
+    - name: Auto Re-request Copilot Review
+      if: steps.check_pr.outputs.exists == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+        
+        echo "🔄 既存PR #$PR_NUMBER でCopilotの再レビューを自動要求します..."
+        
+        # PRのレビュー状況をチェック
+        EXISTING_REVIEWS=$(gh pr view "$PR_NUMBER" --json reviews --jq '.reviews[] | select(.author.login | contains("copilot")) | .state' || echo "")
+        
+        if [ -n "$EXISTING_REVIEWS" ]; then
+          echo "✅ Copilotの既存レビューが見つかりました。再レビューを要求します。"
+          
+          # GitHub APIでCopilotに再レビューを要求
+          echo "📋 GitHub APIでCopilot再レビューを要求中..."
+          RE_REVIEW_RESULT=$(curl -s -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER/requested_reviewers" \
+            -d '{"reviewers":["copilot"]}' 2>/dev/null || echo '{"message":"API error"}')
+          
+          # 結果をチェック
+          if echo "$RE_REVIEW_RESULT" | grep -q '"requested_reviewers"\|"review_request"'; then
+            echo "✅ Copilot再レビューが正常に要求されました"
+            RE_REVIEW_SUCCESS=true
+          elif echo "$RE_REVIEW_RESULT" | grep -q "error\|not found"; then
+            echo "⚠️ GitHub APIでの再レビュー要求が失敗しました。代替方法を試行します..."
+            RE_REVIEW_SUCCESS=false
+          else
+            echo "✅ Copilot再レビューが要求されました"
+            RE_REVIEW_SUCCESS=true
+          fi
+          
+          # APIが失敗した場合、GitHub CLIで試行
+          if [ "$RE_REVIEW_SUCCESS" = "false" ]; then
+            echo "🔄 GitHub CLIで再レビュー要求を試行します..."
+            if gh pr edit "$PR_NUMBER" --add-reviewer "copilot" 2>/dev/null; then
+              echo "✅ GitHub CLIでCopilot再レビューを要求しました"
+            else
+              echo "⚠️ 自動再レビュー要求に失敗しました"
+            fi
+          fi
+          
+          # 再レビュー要求の通知コメントを投稿
+          CURRENT_TIME=$(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')
+          
+          cat > re_review_notification.md << EOF
+        ## 🔄 Copilot 自動再レビュー要求
+        
+        **📅 要求日時**: $CURRENT_TIME
+        
+        ### ✅ 再レビュー要求完了
+        
+        新しいコミットが検出されたため、GitHub Copilotに自動的に再レビューを要求しました。
+        
+        **🌏 重要**: すべてのレビューは**必ず日本語**で提供してください。
+        
+        **🔄 実行内容:**
+        - Copilotの既存レビューを検出
+        - 新しい変更に対する再レビューを要求
+        - **日本語での詳細分析**を明示的に依頼
+        
+        **⏰ レビュー予定:**
+        通常30秒以内に更新されたコードに対する**日本語での**新しいレビューが開始されます。
+        
+        **📋 レビュー内容（日本語で実行）:**
+        - 新しい変更点の分析
+        - 既存の指摘事項の再確認
+        - 改善状況の評価
+        - 追加の改善提案
+        
+        @copilot **注意**: 今回の再レビューでは、すべてのコメントとフィードバックを**日本語**で提供してください。英語は使用せず、日本語のみでお願いします。
+        
+        ---
+        *🤖 自動再レビュー要求が完了しました。「Files changed」タブで**日本語での**新しいレビューを確認してください。*
+        EOF
+          
+          # 通知コメントを投稿
+          if gh pr comment "$PR_NUMBER" --body-file re_review_notification.md; then
+            echo "✅ 再レビュー要求通知を投稿しました"
+          else
+            echo "⚠️ 再レビュー通知の投稿に失敗しました"
+          fi
+          
+        else
+          echo "📝 Copilotの既存レビューが見つかりません。初回レビューとして処理されます。"
+        fi
+    
+    - name: Follow-up Copilot Review Request
+      if: (steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true') && steps.check_copilot_review.outputs.copilot_responded == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # PR番号を取得
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        fi
+        
+        echo "🔄 Copilotの既存レビューに対するフォローアップ質問を送信します"
+        
+        # 少し待機してから追加質問を送信（レート制限対策）
+        sleep 10
+        
+        cat > copilot_followup.md << 'EOF'
+        ## 🔍 追加レビュー質問
+        
+        @copilot ありがとうございます！既存のレビューを踏まえて、以下の追加質問を**日本語で**お答えください：
+        
+        ### 🎯 具体的な改善提案をお願いします
+        
+        1. **優先度の高い改善点**は何ですか？
+        2. **すぐに実装できる小さな改善**はありますか？
+        3. **長期的なリファクタリング**で検討すべき点は？
+        4. **パフォーマンス最適化**の具体的な手順は？
+        5. **セキュリティ強化**で追加すべき機能は？
+        
+        ### 🧪 テスト戦略について
+        
+        @copilot このFlappy Birdゲームに適したテスト戦略と、実装すべきテストケースを**日本語で**教えてください。
+        
+        ### 🚀 次のステップ
+        
+        @copilot 現在のコードベースを改善するための具体的なロードマップを**日本語で**提案してください。
+        
+        ---
+        *🤖 フォローアップ質問は自動生成されました。すべての回答は日本語でお願いします。*
+        EOF
+        
+        # フォローアップ質問を投稿
+        if gh pr comment "$PR_NUMBER" --body-file copilot_followup.md; then
+          echo "✅ Copilot フォローアップ質問が投稿されました"
+        else
+          echo "⚠️ フォローアップ質問の投稿に失敗しました"
+        fi

@@ -6,18 +6,20 @@ import { randomInt } from './utils.js';
  * 上下のパイプを1つのオブジェクトとして管理
  */
 export class Pipe {
-    constructor(x, gapY) {
+    constructor(x, gapY, gapSize = CONFIG.PIPE.GAP_SIZE) {
         this.x = x;
         this.gapY = gapY;
+        this.gapSize = gapSize; // 動的ギャップサイズ
         this.passed = false; // スコア計算用フラグ
     }
     
     /**
      * パイプの更新
      * @param {number} deltaTime - フレーム間の経過時間
+     * @param {number} speed - 現在のパイプ速度
      */
-    update(deltaTime) {
-        this.x -= CONFIG.PIPE.SPEED * (deltaTime / 16.67); // 60FPS基準で正規化
+    update(deltaTime, speed = CONFIG.PIPE.SPEED) {
+        this.x -= speed * (deltaTime / 16.67); // 60FPS基準で正規化
     }
     
     /**
@@ -26,7 +28,7 @@ export class Pipe {
      */
     draw(ctx) {
         const pipeWidth = CONFIG.PIPE.WIDTH;
-        const gapSize = CONFIG.PIPE.GAP_SIZE;
+        const gapSize = this.gapSize; // 動的ギャップサイズを使用
         const canvasHeight = CONFIG.CANVAS_HEIGHT;
         const groundHeight = CONFIG.GROUND.HEIGHT;
         
@@ -105,7 +107,7 @@ export class Pipe {
             x: this.x,
             y: 0,
             width: CONFIG.PIPE.WIDTH,
-            height: this.gapY - CONFIG.PIPE.GAP_SIZE / 2
+            height: this.gapY - this.gapSize / 2
         };
     }
     
@@ -114,7 +116,7 @@ export class Pipe {
      * @returns {Object} - 矩形 {x, y, width, height}
      */
     getLowerCollisionRect() {
-        const lowerPipeY = this.gapY + CONFIG.PIPE.GAP_SIZE / 2;
+        const lowerPipeY = this.gapY + this.gapSize / 2;
         return {
             x: this.x,
             y: lowerPipeY,
@@ -140,6 +142,9 @@ export class PipeManager {
     constructor() {
         this.pipes = [];
         this.lastSpawnTime = 0;
+        this.currentSpeed = CONFIG.PIPE.SPEED; // 現在の速度
+        this.currentGapSize = CONFIG.PIPE.GAP_SIZE; // 現在のパイプ間隔
+        this.currentSpawnInterval = CONFIG.PIPE.SPAWN_INTERVAL; // 現在のパイプ間距離
         this.reset();
     }
     
@@ -149,6 +154,9 @@ export class PipeManager {
     reset() {
         this.pipes = [];
         this.lastSpawnTime = 0;
+        this.currentSpeed = CONFIG.PIPE.SPEED; // 速度をリセット
+        this.currentGapSize = CONFIG.PIPE.GAP_SIZE; // パイプ間隔をリセット
+        this.currentSpawnInterval = CONFIG.PIPE.SPAWN_INTERVAL; // パイプ間距離をリセット
     }
     
     /**
@@ -157,14 +165,14 @@ export class PipeManager {
      * @param {number} currentTime - 現在時刻
      */
     update(deltaTime, currentTime) {
-        // 既存パイプの更新
-        this.pipes.forEach(pipe => pipe.update(deltaTime));
+        // 既存パイプの更新（現在の速度を使用）
+        this.pipes.forEach(pipe => pipe.update(deltaTime, this.currentSpeed));
         
         // 画面外のパイプを削除
         this.pipes = this.pipes.filter(pipe => !pipe.isOffScreen());
         
-        // 新しいパイプの生成
-        if (currentTime - this.lastSpawnTime >= CONFIG.PIPE.SPAWN_INTERVAL) {
+        // 新しいパイプの生成（動的な間隔を使用）
+        if (currentTime - this.lastSpawnTime >= this.currentSpawnInterval) {
             this.spawnPipe();
             this.lastSpawnTime = currentTime;
         }
@@ -174,11 +182,11 @@ export class PipeManager {
      * 新しいパイプを生成
      */
     spawnPipe() {
-        const minGapY = CONFIG.PIPE.MIN_HEIGHT + CONFIG.PIPE.GAP_SIZE / 2;
-        const maxGapY = CONFIG.CANVAS_HEIGHT - CONFIG.GROUND.HEIGHT - CONFIG.PIPE.MIN_HEIGHT - CONFIG.PIPE.GAP_SIZE / 2;
+        const minGapY = CONFIG.PIPE.MIN_HEIGHT + this.currentGapSize / 2;
+        const maxGapY = CONFIG.CANVAS_HEIGHT - CONFIG.GROUND.HEIGHT - CONFIG.PIPE.MIN_HEIGHT - this.currentGapSize / 2;
         
         const gapY = randomInt(minGapY, maxGapY);
-        const pipe = new Pipe(CONFIG.CANVAS_WIDTH, gapY);
+        const pipe = new Pipe(CONFIG.CANVAS_WIDTH, gapY, this.currentGapSize);
         
         this.pipes.push(pipe);
     }
@@ -222,19 +230,62 @@ export class PipeManager {
     /**
      * 通過したパイプをチェックしてスコア計算
      * @param {number} birdX - 鳥のX座標
+     * @param {number} currentTotalScore - 現在の総スコア
      * @returns {number} - 獲得スコア
      */
-    checkScoring(birdX) {
+    checkScoring(birdX, currentTotalScore = 0) {
         let score = 0;
         
         this.pipes.forEach(pipe => {
             if (!pipe.passed && pipe.x + CONFIG.PIPE.WIDTH < birdX) {
                 pipe.passed = true;
-                score++;
+                score += 5; // 5ポイントずつ加算
+                
+                // 5ポイントごとに速度を5%増加（最大速度まで）
+                this.currentSpeed = Math.min(
+                    this.currentSpeed * (1 + CONFIG.PIPE.SPEED_INCREMENT),
+                    CONFIG.PIPE.MAX_SPEED
+                );
+                
+                // 5ポイントごとにギャップサイズを5%減少（最小サイズまで）
+                this.currentGapSize = Math.max(
+                    this.currentGapSize * (1 - CONFIG.PIPE.GAP_SIZE_DECREMENT),
+                    CONFIG.PIPE.GAP_SIZE_MIN
+                );
+                
+                // 5ポイントごとにパイプ間距離を5%減少（最小値まで）
+                this.currentSpawnInterval = Math.max(
+                    this.currentSpawnInterval * (1 - CONFIG.PIPE.SPAWN_INTERVAL_DECREMENT),
+                    CONFIG.PIPE.SPAWN_INTERVAL_MIN
+                );
             }
         });
         
         return score;
+    }
+    
+    /**
+     * 現在の速度を取得
+     * @returns {number} - 現在のパイプ速度
+     */
+    getCurrentSpeed() {
+        return this.currentSpeed;
+    }
+    
+    /**
+     * 現在のギャップサイズを取得
+     * @returns {number} - 現在のパイプギャップサイズ
+     */
+    getCurrentGapSize() {
+        return this.currentGapSize;
+    }
+    
+    /**
+     * 現在のパイプ間距離を取得
+     * @returns {number} - 現在のパイプ間距離
+     */
+    getCurrentSpawnInterval() {
+        return this.currentSpawnInterval;
     }
     
     /**
