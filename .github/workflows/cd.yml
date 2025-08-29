@@ -26,18 +26,33 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # GitHub CLI 認証
-        echo "$GH_TOKEN" | gh auth login --with-token
-        gh auth status
+        # GitHub CLI は既にインストール済み
+        echo "GitHub CLI version: $(gh --version)"
+        
+        # 環境変数認証方式を使用
+        export GH_TOKEN="$GH_TOKEN"
+        
+        # 認証状態確認
+        if gh auth status 2>/dev/null; then
+          echo "✅ GitHub CLI authentication successful"
+        else
+          echo "⚠️ Authentication check failed, but proceeding with GH_TOKEN"
+        fi
         
         # Copilot 拡張をインストール（エラーハンドリング付き）
-        gh extension install github/gh-copilot || {
-          echo "⚠️ Copilot extension install failed - checking existing installation"
-        }
-        
-        # Copilot 利用可否確認
-        if gh extension list 2>/dev/null | grep -q "gh-copilot" && gh copilot --help >/dev/null 2>&1; then
-          echo "✅ GitHub CLI Copilot ready for CD analysis"
+        if gh extension list 2>/dev/null | grep -q "gh-copilot"; then
+          echo "✅ GitHub Copilot extension already installed"
+          echo "COPILOT_AVAILABLE=true" >> $GITHUB_ENV
+        else
+          echo "📦 Installing GitHub Copilot extension..."
+          if gh extension install github/gh-copilot 2>/dev/null; then
+            echo "✅ GitHub Copilot extension installed successfully"
+            echo "COPILOT_AVAILABLE=true" >> $GITHUB_ENV
+          else
+            echo "⚠️ Copilot extension install failed - using fallback analysis"
+            echo "COPILOT_AVAILABLE=false" >> $GITHUB_ENV
+          fi
+        fi
         else
           echo "⚠️ Copilot CLI unavailable - using standard deployment analysis"
         fi

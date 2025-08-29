@@ -1,22 +1,6 @@
-name: CI with GitHub C    - name: Setup GitHub CLI and Copilot
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        # GitHub CLI 認証
-        echo "$GH_TOKEN" | gh auth login --with-token
-        gh auth status
-        
-        # Copilot 拡張をインストール（エラーハンドリング付き）
-        gh extension install github/gh-copilot || {
-          echo "⚠️ Copilot extension install failed - checking existing installation"
-        }
-        
-        # Copilot 利用可否確認
-        if gh extension list 2>/dev/null | grep -q "gh-copilot" && gh copilot --help >/dev/null 2>&1; then
-          echo "✅ GitHub CLI Copilot ready for CI analysis"
-        else
-          echo "⚠️ Copilot CLI unavailable - using enhanced static analysis"
-        fi:
+name: CI with GitHub Copilot Analysis
+
+on:
   push:
     branches: [ main, master, develop ]
   pull_request:
@@ -37,30 +21,45 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Install GitHub CLI with Copilot
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # GitHub CLI インストール
-        type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-        && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-        && sudo apt update \
-        && sudo apt install gh -y
+        # GitHub CLI は ubuntu-latest に既にインストール済み
+        echo "GitHub CLI version: $(gh --version)"
         
-        # Copilot 拡張をインストール
-        gh extension install github/gh-copilot
-        echo "✅ GitHub CLI with Copilot ready"
+        # Copilot 拡張をインストール（エラーハンドリング強化）
+        if gh extension list 2>/dev/null | grep -q "gh-copilot"; then
+          echo "✅ GitHub Copilot extension already installed"
+          echo "COPILOT_AVAILABLE=true" >> $GITHUB_ENV
+        else
+          echo "📦 Installing GitHub Copilot extension..."
+          if gh extension install github/gh-copilot 2>/dev/null; then
+            echo "✅ GitHub Copilot extension installed successfully"
+            echo "COPILOT_AVAILABLE=true" >> $GITHUB_ENV
+          else
+            echo "⚠️ Copilot extension installation failed - using fallback analysis"
+            echo "COPILOT_AVAILABLE=false" >> $GITHUB_ENV
+          fi
+        fi
     
     - name: Authenticate GitHub CLI
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        echo "$GH_TOKEN" | gh auth login --with-token
+        # 環境変数認証方式を使用
+        export GH_TOKEN="$GH_TOKEN"
+        
+        if gh auth status 2>/dev/null; then
+          echo "✅ GitHub CLI authentication successful"
+        else
+          echo "⚠️ GitHub CLI authentication check failed, but proceeding with GH_TOKEN"
+        fi
     
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-    
+
     - name: Install dependencies and run Copilot pre-analysis
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -73,21 +72,25 @@ jobs:
         echo "" >> ci_copilot_report.md
         
         # Copilot でプロジェクト構造分析
-        if command -v gh >/dev/null 2>&1 && gh extension list | grep -q "gh-copilot" 2>/dev/null; then
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
           echo "### 🔍 プロジェクト構造の Copilot 分析" >> ci_copilot_report.md
           echo "" >> ci_copilot_report.md
           
           # package.json の依存関係についてCopilot分析
           if [ -f "package.json" ]; then
             echo "**📦 package.json 依存関係分析:**" >> ci_copilot_report.md
-            {
-              echo "以下のJavaScriptプロジェクトの依存関係とpackage.jsonの最適化についてアドバイスしてください:" | \
-              gh copilot suggest 2>/dev/null | head -15
-            } >> ci_copilot_report.md 2>/dev/null || {
-              echo "- 💡 Copilot分析: 依存関係の最適化を検討" >> ci_copilot_report.md
-            }
+            if timeout 30s gh copilot suggest "JavaScriptプロジェクトのpackage.json依存関係最適化について提案してください" 2>/dev/null | head -10 >> ci_copilot_report.md; then
+              echo "" >> ci_copilot_report.md
+            else
+              echo "- 💡 Copilot分析: 依存関係の最適化を検討してください" >> ci_copilot_report.md
+              echo "" >> ci_copilot_report.md
+            fi
           fi
-          
+        else
+          echo "### ⚠️ 基本プロジェクト分析" >> ci_copilot_report.md
+          echo "" >> ci_copilot_report.md
+          echo "- 📦 Node.js プロジェクト検出" >> ci_copilot_report.md
+          echo "- 🔧 基本品質チェックを実行" >> ci_copilot_report.md
           echo "" >> ci_copilot_report.md
         fi
     
@@ -100,25 +103,31 @@ jobs:
         
         # 標準のLint実行
         echo "**📋 ESLint 結果:**" >> ci_copilot_report.md
-        npm run lint 2>&1 | head -20 >> ci_copilot_report.md || {
+        npm run lint 2>&1 | head -15 >> ci_copilot_report.md || {
           echo "- ⚠️ Lint実行でエラーが発生" >> ci_copilot_report.md
-          npm run lint 2>&1 | head -10 >> ci_copilot_report.md
+          echo "- package.json にlintスクリプトが未定義の可能性" >> ci_copilot_report.md
         }
         
         echo "" >> ci_copilot_report.md
         
         # Copilot でコード品質提案
-        if command -v gh >/dev/null 2>&1 && gh extension list | grep -q "gh-copilot" 2>/dev/null; then
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
           echo "**🤖 Copilot コード品質提案:**" >> ci_copilot_report.md
           echo "" >> ci_copilot_report.md
           
           # JavaScriptファイルの品質改善提案
-          {
-            echo "JavaScript Canvas ゲームのコード品質とLint エラーの解決方法について提案してください" | \
-            gh copilot suggest 2>/dev/null | head -20
-          } >> ci_copilot_report.md 2>/dev/null || {
+          if timeout 30s gh copilot suggest "JavaScript Canvas ゲームのコード品質とLint エラーの解決方法について提案してください" 2>/dev/null | head -15 >> ci_copilot_report.md; then
+            echo "" >> ci_copilot_report.md
+          else
             echo "- 💫 Copilot 提案が一時的に利用できません" >> ci_copilot_report.md
-          }
+            echo "" >> ci_copilot_report.md
+          fi
+        else
+          echo "**💫 基本コード品質チェック:**" >> ci_copilot_report.md
+          echo "- 🔧 関数の適切な命名" >> ci_copilot_report.md
+          echo "- 📝 コメントの充実" >> ci_copilot_report.md
+          echo "- 🚀 パフォーマンス最適化" >> ci_copilot_report.md
+          echo "" >> ci_copilot_report.md
         fi
     
     - name: Run Tests with Copilot Analysis
@@ -138,18 +147,22 @@ jobs:
         echo "" >> ci_copilot_report.md
         
         # Copilot でテスト戦略提案
-        if command -v gh >/dev/null 2>&1 && gh extension list | grep -q "gh-copilot" 2>/dev/null; then
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
           echo "**🤖 Copilot テスト戦略提案:**" >> ci_copilot_report.md
           echo "" >> ci_copilot_report.md
           
-          {
-            echo "Canvas ベースのJavaScriptゲームのテスト戦略とテストフレームワークの選択についてアドバイスしてください" | \
-            gh copilot suggest 2>/dev/null | head -15
-          } >> ci_copilot_report.md 2>/dev/null || {
-            echo "- 💡 Jest または Vitest を使用したユニットテスト" >> ci_copilot_report.md
-            echo "- 🎯 Canvas API のモック化" >> ci_copilot_report.md
-            echo "- 🔄 ゲームロジックの単体テスト" >> ci_copilot_report.md
-          }
+          if timeout 30s gh copilot suggest "Canvas ベースのJavaScriptゲームのテスト戦略とテストフレームワークの選択についてアドバイスしてください" 2>/dev/null | head -12 >> ci_copilot_report.md; then
+            echo "" >> ci_copilot_report.md
+          else
+            echo "- 💡 Copilot テスト提案が一時的に利用できません" >> ci_copilot_report.md
+            echo "" >> ci_copilot_report.md
+          fi
+        else
+          echo "**💡 基本テスト戦略提案:**" >> ci_copilot_report.md
+          echo "- 💡 Jest または Vitest を使用したユニットテスト" >> ci_copilot_report.md
+          echo "- 🎯 Canvas API のモック化" >> ci_copilot_report.md
+          echo "- 🔄 ゲームロジックの単体テスト" >> ci_copilot_report.md
+          echo "" >> ci_copilot_report.md
         fi
         
     - name: Validate HTML/CSS with Copilot Enhancement
@@ -157,12 +170,12 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         echo "" >> ci_copilot_report.md
-        echo "### � HTML/CSS 検証 & Copilot 分析" >> ci_copilot_report.md
+        echo "### 📄 HTML/CSS 検証 & Copilot 分析" >> ci_copilot_report.md
         echo "" >> ci_copilot_report.md
         
         # HTMLHint による検証
         echo "**🔍 HTMLHint 結果:**" >> ci_copilot_report.md
-        npx htmlhint public/*.html 2>&1 | head -15 >> ci_copilot_report.md || echo "HTMLHint warnings detected" >> ci_copilot_report.md
+        npx htmlhint public/*.html 2>&1 | head -10 >> ci_copilot_report.md || echo "HTMLHint warnings detected" >> ci_copilot_report.md
         
         echo "" >> ci_copilot_report.md
         
@@ -178,18 +191,22 @@ jobs:
         echo "" >> ci_copilot_report.md
         
         # Copilot でHTML/CSS最適化提案
-        if command -v gh >/dev/null 2>&1 && gh extension list | grep -q "gh-copilot" 2>/dev/null; then
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
           echo "**🤖 Copilot HTML/CSS 最適化提案:**" >> ci_copilot_report.md
           echo "" >> ci_copilot_report.md
           
-          {
-            echo "HTML5 Canvas ゲームのHTML構造とCSSスタイリングの最適化について提案してください" | \
-            gh copilot suggest 2>/dev/null | head -15
-          } >> ci_copilot_report.md 2>/dev/null || {
-            echo "- 📱 レスポンシブデザインの改善" >> ci_copilot_report.md
-            echo "- ⚡ CSS パフォーマンス最適化" >> ci_copilot_report.md
-            echo "- 🎯 セマンティックHTML の使用" >> ci_copilot_report.md
-          }
+          if timeout 30s gh copilot suggest "HTML5 Canvas ゲームのHTML構造とCSSスタイリングの最適化について提案してください" 2>/dev/null | head -12 >> ci_copilot_report.md; then
+            echo "" >> ci_copilot_report.md
+          else
+            echo "- 💡 Copilot HTML/CSS提案が一時的に利用できません" >> ci_copilot_report.md
+            echo "" >> ci_copilot_report.md
+          fi
+        else
+          echo "**💡 基本HTML/CSS最適化提案:**" >> ci_copilot_report.md
+          echo "- 📱 レスポンシブデザインの改善" >> ci_copilot_report.md
+          echo "- ⚡ CSS パフォーマンス最適化" >> ci_copilot_report.md
+          echo "- 🎯 セマンティックHTML の使用" >> ci_copilot_report.md
+          echo "" >> ci_copilot_report.md
         fi
     
     - name: Build and Test Docker with Copilot
@@ -203,7 +220,7 @@ jobs:
         # Docker ビルド実行
         echo "**🔨 Docker ビルド結果:**" >> ci_copilot_report.md
         BUILD_START=$(date +%s)
-        docker build -t flappy-nginx:test . 2>&1 | tail -5 >> ci_copilot_report.md
+        docker build -t flappy-nginx:test . 2>&1 | tail -3 >> ci_copilot_report.md
         BUILD_END=$(date +%s)
         BUILD_TIME=$((BUILD_END - BUILD_START))
         
@@ -211,18 +228,22 @@ jobs:
         echo "" >> ci_copilot_report.md
         
         # Copilot でDocker最適化提案
-        if command -v gh >/dev/null 2>&1 && gh extension list | grep -q "gh-copilot" 2>/dev/null; then
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
           echo "**🤖 Copilot Docker 最適化提案:**" >> ci_copilot_report.md
           echo "" >> ci_copilot_report.md
           
-          {
-            echo "nginx Alpine ベースのDockerfileとマルチステージビルドの最適化について提案してください" | \
-            gh copilot suggest 2>/dev/null | head -15
-          } >> ci_copilot_report.md 2>/dev/null || {
-            echo "- 🚀 マルチステージビルドの活用" >> ci_copilot_report.md
-            echo "- 📦 レイヤーキャッシングの最適化" >> ci_copilot_report.md
-            echo "- 🔒 セキュリティベースイメージの使用" >> ci_copilot_report.md
-          }
+          if timeout 30s gh copilot suggest "nginx Alpine ベースのDockerfileとマルチステージビルドの最適化について提案してください" 2>/dev/null | head -12 >> ci_copilot_report.md; then
+            echo "" >> ci_copilot_report.md
+          else
+            echo "- 💡 Copilot Docker提案が一時的に利用できません" >> ci_copilot_report.md
+            echo "" >> ci_copilot_report.md
+          fi
+        else
+          echo "**💡 基本Docker最適化提案:**" >> ci_copilot_report.md
+          echo "- 🚀 マルチステージビルドの活用" >> ci_copilot_report.md
+          echo "- 📦 レイヤーキャッシングの最適化" >> ci_copilot_report.md
+          echo "- 🔒 セキュリティベースイメージの使用" >> ci_copilot_report.md
+          echo "" >> ci_copilot_report.md
         fi
     
     - name: Test Docker Container
@@ -265,12 +286,12 @@ jobs:
         echo "" >> ci_copilot_report.md
         
         # 品質スコア計算
-        QUALITY_SCORE=85
+        QUALITY_SCORE=80
         
         # Dockerビルド成功チェック
         if docker images | grep -q "flappy-nginx:test"; then
-          QUALITY_SCORE=$((QUALITY_SCORE + 5))
-          echo "- ✅ Docker ビルド: 成功 (+5)" >> ci_copilot_report.md
+          QUALITY_SCORE=$((QUALITY_SCORE + 10))
+          echo "- ✅ Docker ビルド: 成功 (+10)" >> ci_copilot_report.md
         fi
         
         # テスト結果チェック
@@ -284,21 +305,24 @@ jobs:
         echo "" >> ci_copilot_report.md
         
         # Copilot による総合改善提案
-        if command -v gh >/dev/null 2>&1 && gh extension list | grep -q "gh-copilot" 2>/dev/null; then
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
           echo "**🚀 Copilot による CI/CD 改善提案:**" >> ci_copilot_report.md
           echo "" >> ci_copilot_report.md
           
-          {
-            echo "JavaScript Canvas ゲームのCI/CDパイプラインとDevOps実践の改善について提案してください" | \
-            gh copilot suggest 2>/dev/null | head -15
-          } >> ci_copilot_report.md 2>/dev/null || {
-            echo "- 🔄 自動テストの拡充" >> ci_copilot_report.md
-            echo "- 📈 コードカバレッジの測定" >> ci_copilot_report.md
-            echo "- 🚀 デプロイメント戦略の改善" >> ci_copilot_report.md
-          }
+          if timeout 30s gh copilot suggest "JavaScript Canvas ゲームのCI/CDパイプラインとDevOps実践の改善について提案してください" 2>/dev/null | head -12 >> ci_copilot_report.md; then
+            echo "" >> ci_copilot_report.md
+          else
+            echo "- 💡 Copilot CI/CD提案が一時的に利用できません" >> ci_copilot_report.md
+            echo "" >> ci_copilot_report.md
+          fi
+        else
+          echo "**💡 基本CI/CD改善提案:**" >> ci_copilot_report.md
+          echo "- 🔄 自動テストの拡充" >> ci_copilot_report.md
+          echo "- 📈 コードカバレッジの測定" >> ci_copilot_report.md
+          echo "- 🚀 デプロイメント戦略の改善" >> ci_copilot_report.md
+          echo "" >> ci_copilot_report.md
         fi
         
-        echo "" >> ci_copilot_report.md
         echo "---" >> ci_copilot_report.md
         echo "🤖 **GitHub Copilot CI 分析完了** - $(date '+%Y-%m-%d %H:%M:%S')" >> ci_copilot_report.md
     

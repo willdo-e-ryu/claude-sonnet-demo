@@ -29,31 +29,58 @@ jobs:
         # GitHub CLI は ubuntu-latest に既にインストール済み
         echo "GitHub CLI version: $(gh --version)"
         
-        # GitHub CLI 認証
-        echo "$GH_TOKEN" | gh auth login --with-token
-        gh auth status
+        # 環境変数が設定されているかチェック
+        if [ -z "$GH_TOKEN" ]; then
+          echo "❌ GH_TOKEN environment variable is not set"
+          exit 1
+        fi
         
-        echo "✅ GitHub CLI authentication successful"
+        # GitHub CLI 認証（環境変数方式）
+        export GH_TOKEN="$GH_TOKEN"
+        
+        # 認証状態を確認
+        if gh auth status 2>/dev/null; then
+          echo "✅ GitHub CLI authentication successful via GH_TOKEN"
+        else
+          echo "⚠️ Authentication check failed, but GH_TOKEN is set - proceeding"
+        fi
     
     - name: Install GitHub Copilot Extension
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # GitHub Copilot 拡張機能をインストール
-        gh extension install github/gh-copilot || {
-          echo "⚠️ Copilot extension installation failed - checking if already installed"
-          gh extension list | grep copilot || echo "Copilot extension not available"
-        }
+        # GitHub Copilot 拡張機能をインストール（エラーハンドリング強化）
+        echo "🔍 Checking for existing Copilot extension..."
+        
+        if gh extension list 2>/dev/null | grep -q "gh-copilot"; then
+          echo "✅ GitHub Copilot extension already installed"
+        else
+          echo "📦 Installing GitHub Copilot extension..."
+          if gh extension install github/gh-copilot 2>/dev/null; then
+            echo "✅ GitHub Copilot extension installed successfully"
+          else
+            echo "⚠️ Copilot extension installation failed"
+            echo "Possible reasons:"
+            echo "- GitHub Copilot license required"
+            echo "- Network connectivity issues"
+            echo "- Extension not available in this environment"
+          fi
+        fi
         
         # 拡張機能リストを確認
-        echo "Installed extensions:"
-        gh extension list
+        echo ""
+        echo "📋 Installed extensions:"
+        gh extension list 2>/dev/null || echo "No extensions found or access denied"
         
-        # Copilot コマンドのテスト
-        if gh copilot --help >/dev/null 2>&1; then
-          echo "✅ GitHub Copilot CLI extension is ready"
+        # Copilot コマンドの利用可能性をテスト
+        echo ""
+        echo "🧪 Testing Copilot CLI availability..."
+        if command -v gh >/dev/null 2>&1 && gh copilot --help >/dev/null 2>&1; then
+          echo "✅ GitHub Copilot CLI is ready and available"
+          echo "COPILOT_AVAILABLE=true" >> $GITHUB_ENV
         else
-          echo "⚠️ GitHub Copilot CLI extension not available - will use fallback analysis"
+          echo "⚠️ GitHub Copilot CLI not available - will use fallback analysis"
+          echo "COPILOT_AVAILABLE=false" >> $GITHUB_ENV
         fi
     
     - name: GitHub Copilot CLI Code Analysis
@@ -76,27 +103,23 @@ jobs:
         echo "" >> copilot_cli_review.md
         
         # Copilot CLI の利用可否を確認
-        if command -v gh >/dev/null 2>&1; then
-          # 拡張機能の確認
-          if gh extension list 2>/dev/null | grep -q "gh-copilot"; then
-            echo "### 🤖 GitHub Copilot CLI 分析結果" >> copilot_cli_review.md
-            echo "" >> copilot_cli_review.md
-            echo "✅ **GitHub Copilot CLI 拡張機能が利用可能です**" >> copilot_cli_review.md
-            COPILOT_AVAILABLE=true
-          else
-            echo "### ⚠️ GitHub Copilot CLI 制限モード" >> copilot_cli_review.md
-            echo "" >> copilot_cli_review.md
-            echo "⚠️ **GitHub Copilot CLI 拡張機能が利用できません**" >> copilot_cli_review.md
-            echo "" >> copilot_cli_review.md
-            echo "**理由の可能性:**" >> copilot_cli_review.md
-            echo "- GitHub Copilot ライセンス認証エラー" >> copilot_cli_review.md
-            echo "- 拡張機能インストール失敗" >> copilot_cli_review.md
-            echo "- GitHub Actions 環境制限" >> copilot_cli_review.md
-            COPILOT_AVAILABLE=false
-          fi
+        echo "🔍 Checking Copilot CLI availability..."
+        
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
+          echo "### 🤖 GitHub Copilot CLI 分析結果" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "✅ **GitHub Copilot CLI 拡張機能が利用可能です**" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
         else
-          echo "### ❌ GitHub CLI 利用不可" >> copilot_cli_review.md
-          COPILOT_AVAILABLE=false
+          echo "### ⚠️ GitHub Copilot CLI 制限モード" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "⚠️ **GitHub Copilot CLI 拡張機能が利用できません**" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+          echo "**理由の可能性:**" >> copilot_cli_review.md
+          echo "- GitHub Copilot ライセンス認証が必要" >> copilot_cli_review.md
+          echo "- 拡張機能インストール失敗" >> copilot_cli_review.md
+          echo "- GitHub Actions 環境制限" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
         fi
         
         echo "" >> copilot_cli_review.md
@@ -107,15 +130,16 @@ jobs:
           
           # Copilot が利用可能な場合のみ詳細提案を取得
           if [ "$COPILOT_AVAILABLE" = "true" ]; then
+            echo "**🤖 GitHub Copilot からの提案:**" >> copilot_cli_review.md
+            echo "" >> copilot_cli_review.md
+            
             # Copilot suggest コマンドで改善提案を取得（エラーハンドリング強化）
-            {
-              echo "Canvas ベースのFlappy Birdゲームのコード品質改善について提案してください" | \
-              gh copilot suggest 2>/dev/null | head -20
-            } >> copilot_cli_review.md 2>/dev/null || {
-              echo "**⚠️ Copilot API 一時的利用不可**" >> copilot_cli_review.md
-              echo "- レート制限またはAPI制限中" >> copilot_cli_review.md
-              echo "- 以下は基本的な改善提案です：" >> copilot_cli_review.md
-            }
+            if timeout 30s gh copilot suggest "Canvas ベースのFlappy Birdゲームのコード品質改善について提案してください" 2>/dev/null | head -15 >> copilot_cli_review.md; then
+              echo "" >> copilot_cli_review.md
+            else
+              echo "- ⚠️ Copilot API が一時的に利用できません（タイムアウトまたはレート制限）" >> copilot_cli_review.md
+              echo "" >> copilot_cli_review.md
+            fi
           fi
           
           # フォールバック提案（Copilot利用不可時または補完として）
@@ -162,12 +186,13 @@ jobs:
                       echo "" >> copilot_cli_review.md
                       echo "**💡 Copilot 提案:**" >> copilot_cli_review.md
                       
-                      # Copilot explain でコード分析（エラーハンドリング強化）
-                      {
-                        echo "$FILE_PREVIEW" | gh copilot explain 2>/dev/null | head -10
-                      } >> copilot_cli_review.md || {
-                        echo "- Copilot 分析はレート制限またはAPI制限により一時的に利用できません" >> copilot_cli_review.md
-                      }
+                      # Copilot explain でコード分析（タイムアウト付き）
+                      if timeout 20s bash -c "echo '$FILE_PREVIEW' | gh copilot explain 2>/dev/null" | head -8 >> copilot_cli_review.md; then
+                        echo "" >> copilot_cli_review.md
+                      else
+                        echo "- Copilot 分析はタイムアウトまたはAPI制限により一時的に利用できません" >> copilot_cli_review.md
+                        echo "" >> copilot_cli_review.md
+                      fi
                     fi
                   fi
                   
