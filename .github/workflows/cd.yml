@@ -22,25 +22,25 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Install GitHub CLI with Copilot
-      run: |
-        # GitHub CLI インストール
-        type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-        && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-        && sudo apt update \
-        && sudo apt install gh -y
-        
-        # Copilot 拡張をインストール
-        gh extension install github/gh-copilot
-        echo "✅ GitHub CLI with Copilot ready for CD pipeline"
-    
-    - name: Authenticate GitHub CLI
+    - name: Setup GitHub CLI and Copilot
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
+        # GitHub CLI 認証
         echo "$GH_TOKEN" | gh auth login --with-token
+        gh auth status
+        
+        # Copilot 拡張をインストール（エラーハンドリング付き）
+        gh extension install github/gh-copilot || {
+          echo "⚠️ Copilot extension install failed - checking existing installation"
+        }
+        
+        # Copilot 利用可否確認
+        if gh extension list 2>/dev/null | grep -q "gh-copilot" && gh copilot --help >/dev/null 2>&1; then
+          echo "✅ GitHub CLI Copilot ready for CD analysis"
+        else
+          echo "⚠️ Copilot CLI unavailable - using standard deployment analysis"
+        fi
     
     - name: Pre-deployment Copilot Analysis
       env:

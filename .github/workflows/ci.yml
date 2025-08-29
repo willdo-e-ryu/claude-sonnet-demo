@@ -1,6 +1,22 @@
-name: CI with GitHub Copilot Analysis
-
-on:
+name: CI with GitHub C    - name: Setup GitHub CLI and Copilot
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # GitHub CLI 認証
+        echo "$GH_TOKEN" | gh auth login --with-token
+        gh auth status
+        
+        # Copilot 拡張をインストール（エラーハンドリング付き）
+        gh extension install github/gh-copilot || {
+          echo "⚠️ Copilot extension install failed - checking existing installation"
+        }
+        
+        # Copilot 利用可否確認
+        if gh extension list 2>/dev/null | grep -q "gh-copilot" && gh copilot --help >/dev/null 2>&1; then
+          echo "✅ GitHub CLI Copilot ready for CI analysis"
+        else
+          echo "⚠️ Copilot CLI unavailable - using enhanced static analysis"
+        fi:
   push:
     branches: [ main, master, develop ]
   pull_request:
