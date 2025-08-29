@@ -1,6 +1,6 @@
 /**
- * Flappy Bird Clone - メインゲームループ
- * ES Modules を使用したモジュラー設計
+ * メインゲームファイル
+ * Flappy Bird Clone
  */
 
 import { CONFIG } from './config.js';
@@ -78,20 +78,24 @@ class Game {
         const aspectRatio = CONFIG.CANVAS_WIDTH / CONFIG.CANVAS_HEIGHT;
         let displayWidth, displayHeight;
         
-        // 画面の95%を使用してより大きく表示
+        // 画面の90%を使用（400x600に最適化）
         if (screenWidth / screenHeight > aspectRatio) {
             // 高さ基準
-            displayHeight = screenHeight * 0.95;
+            displayHeight = screenHeight * 0.90;
             displayWidth = displayHeight * aspectRatio;
         } else {
             // 幅基準  
-            displayWidth = screenWidth * 0.95;
+            displayWidth = screenWidth * 0.90;
             displayHeight = displayWidth / aspectRatio;
         }
         
-        // より大きな最小サイズを設定
-        displayWidth = Math.max(displayWidth, 800);
-        displayHeight = Math.max(displayHeight, 600);
+        // 400x600に適した最小サイズを設定
+        displayWidth = Math.max(displayWidth, 300);
+        displayHeight = Math.max(displayHeight, 450);
+        
+        // 最大サイズの制限も追加
+        displayWidth = Math.min(displayWidth, 600);
+        displayHeight = Math.min(displayHeight, 900);
         
         // キャンバスの表示サイズを更新（描画解像度は変更しない）
         this.canvas.style.width = displayWidth + 'px';
@@ -160,7 +164,6 @@ class Game {
      * 鳥の死亡処理
      */
     handleBirdDeath() {
-        console.log('Bird died, ending game'); // デバッグログ
         this.gameStateManager.endGame();
     }
     
@@ -275,7 +278,6 @@ class Game {
         if (this.gameStateManager.isPaused()) {
             this.drawPauseOverlay();
         } else if (this.gameStateManager.isGameOver()) {
-            console.log('Drawing Game Over overlay'); // デバッグログ
             this.drawGameOverOverlay();
         }
     }
@@ -309,9 +311,10 @@ class Game {
      */
     drawClouds() {
         const cloudPositions = [
-            { x: 100, y: 80, scale: 1 },
-            { x: 300, y: 120, scale: 0.8 },
-            { x: 200, y: 180, scale: 0.6 }
+            { x: 80, y: 60, scale: 1 },
+            { x: 220, y: 100, scale: 0.8 },
+            { x: 320, y: 80, scale: 0.6 },
+            { x: 150, y: 140, scale: 0.7 }
         ];
         
         this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
@@ -370,16 +373,16 @@ class Game {
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
         this.ctx.fillRect(0, 0, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT);
         
-        // ポーズテキスト
+        // ポーズテキスト（400px幅に合わせて調整）
         this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = 'bold 48px Arial';
+        this.ctx.font = 'bold 36px Arial';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         this.ctx.fillText('PAUSED', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2);
         
         // 再開方法の説明
-        this.ctx.font = '24px Arial';
-        this.ctx.fillText('Press P to resume', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 60);
+        this.ctx.font = '18px Arial';
+        this.ctx.fillText('Press P to resume', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 50);
     }
     
     /**
@@ -390,30 +393,30 @@ class Game {
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
         this.ctx.fillRect(0, 0, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT);
         
-        // Game Overテキスト
+        // Game Overテキスト（400px幅に合わせて調整）
         this.ctx.fillStyle = '#ff4444';
-        this.ctx.font = 'bold 64px Arial';
+        this.ctx.font = 'bold 48px Arial';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         this.ctx.strokeStyle = '#ffffff';
-        this.ctx.lineWidth = 3;
+        this.ctx.lineWidth = 2;
         this.ctx.strokeText('GAME OVER', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 - 50);
         this.ctx.fillText('GAME OVER', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 - 50);
         
         // 最終スコア表示
         this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = 'bold 32px Arial';
+        this.ctx.font = 'bold 24px Arial';
         this.ctx.fillText(`Score: ${this.scoreManager.currentScore}`, CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 20);
         
         // ベストスコア表示
-        this.ctx.font = '28px Arial';
+        this.ctx.font = '22px Arial';
         this.ctx.fillStyle = '#ffff88';
-        this.ctx.fillText(`Best: ${this.scoreManager.bestScore}`, CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 60);
+        this.ctx.fillText(`Best: ${this.scoreManager.bestScore}`, CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 50);
         
         // 再開方法の説明
-        this.ctx.font = '24px Arial';
+        this.ctx.font = '18px Arial';
         this.ctx.fillStyle = '#cccccc';
-        this.ctx.fillText('Press SPACE to restart', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 120);
+        this.ctx.fillText('Press SPACE to restart', CONFIG.CANVAS_WIDTH / 2, CONFIG.CANVAS_HEIGHT / 2 + 90);
     }
     
     /**
