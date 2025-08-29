@@ -160,6 +160,7 @@ class Game {
      * 鳥の死亡処理
      */
     handleBirdDeath() {
+        console.log('Bird died, ending game'); // デバッグログ
         this.gameStateManager.endGame();
     }
     
@@ -274,6 +275,7 @@ class Game {
         if (this.gameStateManager.isPaused()) {
             this.drawPauseOverlay();
         } else if (this.gameStateManager.isGameOver()) {
+            console.log('Drawing Game Over overlay'); // デバッグログ
             this.drawGameOverOverlay();
         }
     }

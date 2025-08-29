@@ -49,6 +49,7 @@ export class GameStateManager {
      * ゲーム終了
      */
     endGame() {
+        console.log('Game state changed to GAME_OVER'); // デバッグログ
         this.setState(CONFIG.STATES.GAME_OVER);
     }
     
