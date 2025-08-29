@@ -626,10 +626,6 @@ jobs:
         ---
         *🤖 自動再レビュー要求が完了しました。「Files changed」タブで**日本語での**新しいレビューを確認してください。*
         EOF
-        
-        ---
-        *🤖 自動再レビュー要求が完了しました。「Files changed」タブで新しいレビューを確認してください。*
-        EOF
           
           # 通知コメントを投稿
           if gh pr comment "$PR_NUMBER" --body-file re_review_notification.md; then
