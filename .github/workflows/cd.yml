@@ -67,7 +67,9 @@ jobs:
         fi
     
     - name: Deploy to production server
-      if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) && secrets.SSH_HOST != ''
+      if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+      env:
+        SSH_HOST: ${{ secrets.SSH_HOST }}
       uses: appleboy/ssh-action@v1.1.0
       with:
         host: ${{ secrets.SSH_HOST }}
@@ -75,6 +77,12 @@ jobs:
         username: ${{ secrets.SSH_USER || 'ubuntu' }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
+          # SSH_HOSTが設定されていない場合はスキップ
+          if [ -z "$SSH_HOST" ]; then
+            echo "SSH_HOST not configured - skipping deployment"
+            exit 0
+          fi
+          
           # デプロイディレクトリの作成
           sudo mkdir -p ${{ secrets.DEPLOY_DIR }}
           
@@ -105,19 +113,25 @@ jobs:
           ./deploy.sh
 
     - name: Deployment skipped notification
-      if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) && secrets.SSH_HOST == ''
+      if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+      env:
+        SSH_HOST: ${{ secrets.SSH_HOST }}
       run: |
-        echo "⏭️ Deployment skipped: SSH_HOST secret not configured"
-        echo "Docker image has been built and pushed to GitHub Container Registry"
-        echo "Image: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+        if [ -z "$SSH_HOST" ]; then
+          echo "⏭️ Deployment skipped: SSH_HOST secret not configured"
+          echo "Docker image has been built and pushed to GitHub Container Registry"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+        fi
     
     - name: Notify deployment status
       if: always()
+      env:
+        SSH_HOST: ${{ secrets.SSH_HOST }}
       run: |
-        if [ "${{ job.status }}" = "success" ] && [ -n "${{ secrets.SSH_HOST }}" ]; then
+        if [ "${{ job.status }}" = "success" ] && [ -n "$SSH_HOST" ]; then
           echo "🎉 Deployment successful!"
-          echo "Application URL: http://${{ secrets.SSH_HOST }}:8080"
-        elif [ "${{ job.status }}" = "success" ] && [ -z "${{ secrets.SSH_HOST }}" ]; then
+          echo "Application URL: http://$SSH_HOST:8080"
+        elif [ "${{ job.status }}" = "success" ] && [ -z "$SSH_HOST" ]; then
           echo "✅ Build successful! Image pushed to GitHub Container Registry"
           echo "Image: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
         else
@@ -126,6 +140,8 @@ jobs:
     
     - name: Create deployment summary
       if: always()
+      env:
+        SSH_HOST: ${{ secrets.SSH_HOST }}
       run: |
         echo "## Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
@@ -133,10 +149,10 @@ jobs:
         echo "- **Image**: \`${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Branch/Tag**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-        if [ "${{ job.status }}" = "success" ] && [ -n "${{ secrets.SSH_HOST }}" ]; then
+        if [ "${{ job.status }}" = "success" ] && [ -n "$SSH_HOST" ]; then
           echo "- **Deployment**: ✅ Successful" >> $GITHUB_STEP_SUMMARY
-          echo "- **URL**: http://${{ secrets.SSH_HOST }}:8080" >> $GITHUB_STEP_SUMMARY
-        elif [ "${{ job.status }}" = "success" ] && [ -z "${{ secrets.SSH_HOST }}" ]; then
+          echo "- **URL**: http://$SSH_HOST:8080" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ job.status }}" = "success" ] && [ -z "$SSH_HOST" ]; then
           echo "- **Deployment**: ⏭️ Skipped (SSH_HOST not configured)" >> $GITHUB_STEP_SUMMARY
           echo "- **Container Registry**: ✅ Image pushed successfully" >> $GITHUB_STEP_SUMMARY
         else

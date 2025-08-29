@@ -2,7 +2,10 @@ name: PR Code Review with Copilot
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, synch        fi
+        
+    - name: Enhanced Static Analysis
+      run: |ize, ready_for_review]
     branches: [ main, master, develop ]
   pull_request_review:
     types: [submitted]
