@@ -37,7 +37,10 @@ export const CONFIG = {
         SPAWN_INTERVAL_DECREMENT: 0.05, // パイプ間距離減少率（5%）
         MIN_HEIGHT: 50,
         COLOR: '#228B22',
-        OUTLINE_COLOR: '#006400'
+        OUTLINE_COLOR: '#006400',
+        // 新機能: ランダム色パイプ
+        RANDOM_COLOR_ENABLED: false, // デフォルトは無効
+        RANDOM_COLORS: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57']
     },
     
     // 地面設定
@@ -63,6 +66,31 @@ export const CONFIG = {
     
     // デバッグ設定
     DEBUG: false, // デバッグモードを無効化
+    
+    // 新機能: パワーアップアイテム設定
+    POWERUPS: {
+        ENABLED: false, // デフォルトは無効
+        SPAWN_CHANCE: 0.3, // 30%の確率で出現
+        TYPES: {
+            SLOW_TIME: {
+                name: '時間減速',
+                color: '#FFD700',
+                duration: 5000, // 5秒間
+                effect: 0.5 // 時間が半分に
+            },
+            EXTRA_LIFE: {
+                name: '追加ライフ',
+                color: '#FF69B4',
+                effect: 1 // ライフ+1
+            },
+            DOUBLE_SCORE: {
+                name: 'スコア2倍',
+                color: '#00CED1',
+                duration: 10000, // 10秒間
+                effect: 2 // スコア2倍
+            }
+        }
+    },
     
     // ゲーム状態
     STATES: {
