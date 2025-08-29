@@ -86,18 +86,21 @@ jobs:
     - name: GitHub Copilot CLI Code Analysis
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        LC_ALL: C.UTF-8
-        LANG: C.UTF-8
+        LC_ALL: ja_JP.UTF-8
+        LANG: ja_JP.UTF-8
+        GH_COPILOT_SKIP_SURVEY: 1
       run: |
         # UTF-8エンコーディングの設定（文字化け防止）
-        export LC_ALL=C.UTF-8
-        export LANG=C.UTF-8
-        export LANGUAGE=C.UTF-8
+        export LC_ALL=ja_JP.UTF-8
+        export LANG=ja_JP.UTF-8
+        export LANGUAGE=ja_JP.UTF-8
+        export TZ=Asia/Tokyo
+        export GH_COPILOT_SKIP_SURVEY=1
         
         # レビューファイルをUTF-8で初期化
         echo "## 🤖 GitHub Copilot CLI レビュー分析" > copilot_cli_review.md
         echo "" >> copilot_cli_review.md
-        echo "### 📅 分析実行日時: $(date '+%Y-%m-%d %H:%M:%S')" >> copilot_cli_review.md
+        echo "### 📅 分析実行日時: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')" >> copilot_cli_review.md
         echo "" >> copilot_cli_review.md
         
         # 変更されたファイルを取得
@@ -140,11 +143,12 @@ jobs:
           echo "" >> copilot_cli_review.md
           
           # プロジェクト改善提案を取得（エンコーディング安全化）
-          SUGGESTION_QUERY="このプロジェクトのコード品質を向上させるための提案をお願いします"
+          SUGGESTION_QUERY="このFlappy Birdプロジェクトのコード品質を向上させるための提案を日本語で教えてください。具体的で実践的なアドバイスをお願いします。"
           if timeout 30s bash -c "
-            export LC_ALL=C.UTF-8
-            export LANG=C.UTF-8
-            echo '$SUGGESTION_QUERY' | gh copilot suggest 2>/dev/null | 
+            export LC_ALL=ja_JP.UTF-8
+            export LANG=ja_JP.UTF-8
+            export GH_COPILOT_SKIP_SURVEY=1
+            echo '$SUGGESTION_QUERY' | gh copilot suggest --no-interactive 2>/dev/null | 
             head -10 | 
             iconv -f UTF-8 -t UTF-8//IGNORE 2>/dev/null || 
             echo '- Copilot提案の取得中にエンコーディングエラーが発生しました'
@@ -156,7 +160,12 @@ jobs:
           fi
           
           # Copilot suggest コマンドで改善提案を取得（エラーハンドリング強化）
-          if timeout 30s gh copilot suggest "Canvas ベースのFlappy Birdゲームのコード品質改善について提案してください" 2>/dev/null | head -15 >> copilot_cli_review.md; then
+          if timeout 30s bash -c "
+            export LC_ALL=ja_JP.UTF-8
+            export LANG=ja_JP.UTF-8
+            export GH_COPILOT_SKIP_SURVEY=1
+            gh copilot suggest 'CanvasとJavaScriptで作られたFlappy Birdゲームのコード品質改善について、日本語で具体的な提案をしてください。パフォーマンス、保守性、セキュリティの観点から改善点を教えてください。' --no-interactive 2>/dev/null
+          " | head -15 >> copilot_cli_review.md; then
             echo "" >> copilot_cli_review.md
           else
             echo "- ⚠️ Copilot API が一時的に利用できません（タイムアウトまたはレート制限）" >> copilot_cli_review.md
@@ -206,9 +215,10 @@ jobs:
                       
                       # Copilot explain でコード分析（タイムアウト・エンコーディング対応）
                       if timeout 30s bash -c "
-                        export LC_ALL=C.UTF-8
-                        export LANG=C.UTF-8
-                        echo '$FILE_PREVIEW' | gh copilot explain 2>/dev/null | 
+                        export LC_ALL=ja_JP.UTF-8
+                        export LANG=ja_JP.UTF-8
+                        export GH_COPILOT_SKIP_SURVEY=1
+                        echo '$FILE_PREVIEW' | gh copilot explain --no-interactive 2>/dev/null | 
                         head -8 | 
                         sed 's/[^\x00-\x7F]/?/g' 2>/dev/null || echo '- Copilot分析で文字エンコーディングエラーが発生しました'
                       " >> copilot_cli_review.md; then
@@ -265,19 +275,19 @@ jobs:
         echo "" >> copilot_cli_review.md
         echo "---" >> copilot_cli_review.md
         echo "" >> copilot_cli_review.md
-        echo "🤖 **GitHub Copilot CLI 統合分析完了** - $(date '+%Y-%m-%d %H:%M:%S')" >> copilot_cli_review.md
+        echo "🤖 **GitHub Copilot CLI 統合分析完了** - $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')" >> copilot_cli_review.md
         echo "" >> copilot_cli_review.md
         echo "💡 **ローカル開発**: VS Code で \`gh copilot suggest\` または \`gh copilot explain\` を使用して、より詳細な提案を得ることができます。" >> copilot_cli_review.md
     
     - name: Post Copilot CLI Review to PR
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        LC_ALL: C.UTF-8
-        LANG: C.UTF-8
+        LC_ALL: ja_JP.UTF-8
+        LANG: ja_JP.UTF-8
       run: |
         # UTF-8エンコーディングの確認（文字化け防止）
-        export LC_ALL=C.UTF-8
-        export LANG=C.UTF-8
+        export LC_ALL=ja_JP.UTF-8
+        export LANG=ja_JP.UTF-8
         
         # ファイルのエンコーディングを確認
         echo "📋 Review file encoding check:"
