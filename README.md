@@ -244,3 +244,4 @@ MIT License - 自由に使用・改変・配布可能です。
 ---
 
 **楽しいゲーミングを！** 🎮✨
+# Trigger Copilot Review Workflow
