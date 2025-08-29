@@ -6,12 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "docker-compose up --build",
-    "dev": "docker-compose -f docker-compose.dev.yml up --build",
+    "dev": "docker-compose -f docker-compose.dev.yml up --build", 
     "build": "docker build -t flappy-bird-clone .",
     "test": "node scripts/test.js",
-    "lint": "echo 'Linting JavaScript files...' && node scripts/lint.js",
-    "lint:fix": "echo 'Auto-fixing linting issues...' && node scripts/lint.js --fix",
-    "analyze": "node scripts/analyze.js",
     "health-check": "curl -f http://localhost:8080/health || exit 1"
   },
   "repository": {
@@ -28,9 +25,6 @@
   ],
   "author": "Your Name",
   "license": "MIT",
-  "devDependencies": {
-    "htmlhint": "^1.1.4"
-  },
   "engines": {
     "node": ">=18.0.0"
   }

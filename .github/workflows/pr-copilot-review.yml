@@ -86,7 +86,15 @@ jobs:
     - name: GitHub Copilot CLI Code Analysis
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        LC_ALL: C.UTF-8
+        LANG: C.UTF-8
       run: |
+        # UTF-8エンコーディングの設定（文字化け防止）
+        export LC_ALL=C.UTF-8
+        export LANG=C.UTF-8
+        export LANGUAGE=C.UTF-8
+        
+        # レビューファイルをUTF-8で初期化
         echo "## 🤖 GitHub Copilot CLI レビュー分析" > copilot_cli_review.md
         echo "" >> copilot_cli_review.md
         echo "### 📅 分析実行日時: $(date '+%Y-%m-%d %H:%M:%S')" >> copilot_cli_review.md
@@ -122,34 +130,45 @@ jobs:
           echo "" >> copilot_cli_review.md
         fi
         
+        # プロジェクト全体についてCopilot提案を取得（文字化け対策付き）
+        echo "#### 🎯 プロジェクト改善提案" >> copilot_cli_review.md
         echo "" >> copilot_cli_review.md
-          
-          # プロジェクト全体についてCopilot提案を取得
-          echo "#### 🎯 プロジェクト改善提案" >> copilot_cli_review.md
+        
+        # Copilot が利用可能な場合のみ詳細提案を取得
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
+          echo "**🤖 GitHub Copilot からの提案:**" >> copilot_cli_review.md
           echo "" >> copilot_cli_review.md
           
-          # Copilot が利用可能な場合のみ詳細提案を取得
-          if [ "$COPILOT_AVAILABLE" = "true" ]; then
-            echo "**🤖 GitHub Copilot からの提案:**" >> copilot_cli_review.md
+          # プロジェクト改善提案を取得（エンコーディング安全化）
+          SUGGESTION_QUERY="このプロジェクトのコード品質を向上させるための提案をお願いします"
+          if timeout 30s bash -c "
+            export LC_ALL=C.UTF-8
+            export LANG=C.UTF-8
+            echo '$SUGGESTION_QUERY' | gh copilot suggest 2>/dev/null | 
+            head -10 | 
+            iconv -f UTF-8 -t UTF-8//IGNORE 2>/dev/null || 
+            echo '- Copilot提案の取得中にエンコーディングエラーが発生しました'
+          " >> copilot_cli_review.md 2>/dev/null; then
             echo "" >> copilot_cli_review.md
-            
-            # Copilot suggest コマンドで改善提案を取得（エラーハンドリング強化）
-            if timeout 30s gh copilot suggest "Canvas ベースのFlappy Birdゲームのコード品質改善について提案してください" 2>/dev/null | head -15 >> copilot_cli_review.md; then
-              echo "" >> copilot_cli_review.md
-            else
-              echo "- ⚠️ Copilot API が一時的に利用できません（タイムアウトまたはレート制限）" >> copilot_cli_review.md
-              echo "" >> copilot_cli_review.md
-            fi
-          fi
-          
-          # フォールバック提案（Copilot利用不可時または補完として）
-          if [ "$COPILOT_AVAILABLE" != "true" ]; then
-            echo "**💫 基本的な改善提案:**" >> copilot_cli_review.md
           else
-            echo "**💫 追加の改善提案:**" >> copilot_cli_review.md
+            echo "- ⚠️ Copilot API が一時的に利用できません（タイムアウトまたはレート制限）" >> copilot_cli_review.md
+            echo "" >> copilot_cli_review.md
           fi
           
-          echo "- 🎯 **モジュール化**: ゲームロジックを複数のクラスに分割" >> copilot_cli_review.md
+          # Copilot suggest コマンドで改善提案を取得（エラーハンドリング強化）
+          if timeout 30s gh copilot suggest "Canvas ベースのFlappy Birdゲームのコード品質改善について提案してください" 2>/dev/null | head -15 >> copilot_cli_review.md; then
+            echo "" >> copilot_cli_review.md
+          else
+            echo "- ⚠️ Copilot API が一時的に利用できません（タイムアウトまたはレート制限）" >> copilot_cli_review.md
+            echo "" >> copilot_cli_review.md
+          fi
+        else
+          # フォールバック提案（Copilot利用不可時）
+          echo "**💫 基本的な改善提案:**" >> copilot_cli_review.md
+          echo "" >> copilot_cli_review.md
+        fi
+          
+        echo "- 🎯 **モジュール化**: ゲームロジックを複数のクラスに分割" >> copilot_cli_review.md
           echo "- 🚀 **パフォーマンス**: requestAnimationFrame の最適化" >> copilot_cli_review.md
           echo "- 🧪 **テスト**: Jest によるユニットテスト追加" >> copilot_cli_review.md
           echo "- 🔒 **エラー処理**: try-catch文の適切な配置" >> copilot_cli_review.md
@@ -186,11 +205,17 @@ jobs:
                       echo "" >> copilot_cli_review.md
                       echo "**💡 Copilot 提案:**" >> copilot_cli_review.md
                       
-                      # Copilot explain でコード分析（タイムアウト付き）
-                      if timeout 20s bash -c "echo '$FILE_PREVIEW' | gh copilot explain 2>/dev/null" | head -8 >> copilot_cli_review.md; then
+                      # Copilot explain でコード分析（タイムアウト・エンコーディング対応）
+                      if timeout 30s bash -c "
+                        export LC_ALL=C.UTF-8
+                        export LANG=C.UTF-8
+                        echo '$FILE_PREVIEW' | gh copilot explain 2>/dev/null | 
+                        head -8 | 
+                        sed 's/[^\x00-\x7F]/?/g' 2>/dev/null || echo '- Copilot分析で文字エンコーディングエラーが発生しました'
+                      " >> copilot_cli_review.md; then
                         echo "" >> copilot_cli_review.md
                       else
-                        echo "- Copilot 分析はタイムアウトまたはAPI制限により一時的に利用できません" >> copilot_cli_review.md
+                        echo "- ⚠️ Copilot 分析はタイムアウトまたはAPI制限により一時的に利用できません" >> copilot_cli_review.md
                         echo "" >> copilot_cli_review.md
                       fi
                     fi
@@ -248,13 +273,44 @@ jobs:
     - name: Post Copilot CLI Review to PR
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        LC_ALL: C.UTF-8
+        LANG: C.UTF-8
       run: |
-        # PRにCopilot CLI レビューコメントを投稿
-        gh pr comment ${{ github.event.pull_request.number }} \
-          --body-file copilot_cli_review.md \
-          --repo ${{ github.repository }}
+        # UTF-8エンコーディングの確認（文字化け防止）
+        export LC_ALL=C.UTF-8
+        export LANG=C.UTF-8
         
-        echo "✅ GitHub Copilot CLI レビューがPRに投稿されました"
+        # ファイルのエンコーディングを確認
+        echo "📋 Review file encoding check:"
+        file copilot_cli_review.md
+        
+        # BOMの除去（文字化け原因となる可能性）
+        if [ -f copilot_cli_review.md ]; then
+          # BOMが存在する場合は除去
+          sed -i '1s/^\xEF\xBB\xBF//' copilot_cli_review.md 2>/dev/null || true
+          
+          # ファイルサイズとエンコーディングを確認
+          echo "📊 File size: $(wc -c < copilot_cli_review.md) bytes"
+          echo "📄 Line count: $(wc -l < copilot_cli_review.md) lines"
+          
+          # PRにCopilot CLI レビューコメントを投稿
+          echo "🚀 Posting review comment to PR..."
+          if gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file copilot_cli_review.md \
+            --repo ${{ github.repository }}; then
+            echo "✅ GitHub Copilot CLI レビューがPRに投稿されました"
+          else
+            echo "⚠️ PR comment posting failed, trying alternative method..."
+            # フォールバック: ファイル内容を直接指定
+            REVIEW_CONTENT=$(cat copilot_cli_review.md)
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --body "$REVIEW_CONTENT" \
+              --repo ${{ github.repository }} || echo "❌ Review posting failed completely"
+          fi
+        else
+          echo "❌ Review file not found"
+          exit 1
+        fi
     
     - name: Add Copilot-Related Labels
       env:
