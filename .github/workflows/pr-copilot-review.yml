@@ -178,7 +178,8 @@ jobs:
         echo "#### 📂 個別ファイル分析" >> copilot_cli_review.md
         echo "" >> copilot_cli_review.md
         
-        while IFS= read -r file; do
+        if [ "$COPILOT_AVAILABLE" = "true" ]; then
+          while IFS= read -r file; do
             if [ -f "$file" ] && [ -n "$file" ]; then
               echo "##### 📄 \`$file\`" >> copilot_cli_review.md
               echo "" >> copilot_cli_review.md
@@ -247,7 +248,7 @@ jobs:
               
               echo "" >> copilot_cli_review.md
             fi
-        done < <(echo "$CHANGED_FILES")
+          done < <(echo "$CHANGED_FILES")
         else
           echo "### ⚠️ GitHub Copilot CLI 未利用" >> copilot_cli_review.md
           echo "" >> copilot_cli_review.md
