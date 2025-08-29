@@ -102,7 +102,7 @@ jobs:
           echo "- ✅ 構文チェック"
           echo "- ✅ Docker ビルドテスト"
           echo "- ✅ セキュリティスキャン"
-          echo "- ✅ GitHub Copilot コードレビュー"
+          echo "- ✅ GitHub Copilot AI レビュー"
           echo ""
           echo "### 📋 チェックリスト"
           echo "- [ ] 変更内容を確認済み"
@@ -183,100 +183,51 @@ jobs:
           gh pr edit "$PR_NUMBER" --add-label "$ADDITIONAL_LABELS" || echo "追加ラベル設定をスキップしました"
         fi
     
-    - name: Request Copilot Code Review
-      if: steps.create_pr.outputs.pull-request-number != '' || steps.check_pr.outputs.exists == 'true'
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        # PR番号を取得
-        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
-          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
-          echo "既存のPR #$PR_NUMBER にCopilotレビューを追加します"
-        else
-          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
-          echo "新規PR #$PR_NUMBER にCopilotレビューを追加します"
-        fi
-        
-        # GitHub Copilot による自動レビューコメント
-        cat > copilot_review.md << 'EOF'
-        ## 🤖 GitHub Copilot 自動コードレビュー
-        
-        ### 📊 分析結果
-        このコードについて以下の観点から分析しました：
-        
-        **🔍 コード品質チェック:**
-        - 命名規則の一貫性
-        - 関数の複雑度
-        - コメントの適切性
-        - エラーハンドリング
-        
-        **🚀 パフォーマンス分析:**
-        - 処理効率
-        - メモリ使用量
-        - ループ最適化
-        
-        **🔒 セキュリティチェック:**
-        - 入力値検証
-        - XSS/CSRF対策
-        - 機密情報の露出
-        
-        **📝 改善提案:**
-        詳細なレビューコメントを各ファイルに追加します。
-        
-        ---
-        ℹ️ より詳細な分析が必要な場合は、PR内で `@github copilot` にメンションしてください。
-        EOF
-        
-        gh pr comment "$PR_NUMBER" --body-file copilot_review.md
-        echo "Copilot レビューコメントを追加しました"
+
     
-    - name: Set up Node.js for additional checks
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-    
-    - name: Run enhanced code analysis
+    - name: Basic code analysis
       id: code_analysis
       continue-on-error: true
       run: |
-        PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        # 基本的なコード分析（PR番号を取得）
+        if [ "${{ steps.check_pr.outputs.exists }}" == "true" ]; then
+          PR_NUMBER="${{ steps.check_pr.outputs.pr_number }}"
+        else
+          PR_NUMBER="${{ steps.create_pr.outputs.pull-request-number }}"
+        fi
         
         if [ -z "$PR_NUMBER" ]; then
           echo "PR番号が取得できませんでした。スキップします。"
           exit 0
         fi
         
-        # 変更されたJSファイルをチェック
-        CHANGED_JS_FILES=$(git diff --name-only origin/${{ steps.branch_info.outputs.base_branch }}..HEAD | grep '\.js$' || true)
+        # 変更されたファイルの基本情報
+        CHANGED_FILES=$(git diff --name-only origin/${{ steps.branch_info.outputs.base_branch }}..HEAD || true)
         
-        if [ -n "$CHANGED_JS_FILES" ]; then
-          echo "## 🔍 JavaScript ファイル分析結果" > analysis_report.md
-          echo "" >> analysis_report.md
+        if [ -n "$CHANGED_FILES" ]; then
+          echo "## � 変更ファイル分析" > basic_analysis.md
+          echo "" >> basic_analysis.md
+          echo "### 変更されたファイル" >> basic_analysis.md
+          echo '```' >> basic_analysis.md
+          echo "$CHANGED_FILES" >> basic_analysis.md
+          echo '```' >> basic_analysis.md
+          echo "" >> basic_analysis.md
           
-          for file in $CHANGED_JS_FILES; do
-            if [ -f "$file" ]; then
-              echo "### 📄 \`$file\`" >> analysis_report.md
-              
-              # ファイルサイズチェック
-              FILE_SIZE=$(wc -c < "$file")
-              echo "- **ファイルサイズ**: ${FILE_SIZE} bytes" >> analysis_report.md
-              
-              # 複雑度の簡易チェック
-              FUNCTION_COUNT=$(grep -c "function\|=>" "$file" || echo "0")
-              echo "- **関数数**: $FUNCTION_COUNT" >> analysis_report.md
-              
-              # TODOコメントの検索
-              TODO_COUNT=$(grep -c "TODO\|FIXME\|XXX" "$file" || echo "0")
-              if [ "$TODO_COUNT" -gt 0 ]; then
-                echo "- **⚠️ TODO/FIXME**: $TODO_COUNT 箇所" >> analysis_report.md
-              fi
-              
-              echo "" >> analysis_report.md
-            fi
-          done
+          # ファイル数と変更行数の統計
+          FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l)
+          TOTAL_ADDITIONS=$(git diff --numstat origin/${{ steps.branch_info.outputs.base_branch }}..HEAD | awk '{sum+=$1} END {print sum+0}')
+          TOTAL_DELETIONS=$(git diff --numstat origin/${{ steps.branch_info.outputs.base_branch }}..HEAD | awk '{sum+=$2} END {print sum+0}')
+          
+          echo "### 📈 変更統計" >> basic_analysis.md
+          echo "- **変更ファイル数**: $FILE_COUNT" >> basic_analysis.md
+          echo "- **追加行数**: +$TOTAL_ADDITIONS" >> basic_analysis.md
+          echo "- **削除行数**: -$TOTAL_DELETIONS" >> basic_analysis.md
+          echo "" >> basic_analysis.md
+          echo "---" >> basic_analysis.md
+          echo "詳細なレビューは @copilot が実行します。" >> basic_analysis.md
           
           # 分析結果をPRにコメント
-          gh pr comment "$PR_NUMBER" --body-file analysis_report.md
+          gh pr comment "$PR_NUMBER" --body-file basic_analysis.md
         fi
     
     - name: Update PR status
@@ -306,9 +257,9 @@ jobs:
         - ベースブランチ設定
         
         ✅ **コード分析**
-        - GitHub Copilot レビュー実行
-        - JavaScript ファイル分析
-        - セキュリティチェック
+        - 基本的なファイル分析
+        - 変更統計情報
+        - GitHub Copilot AI レビュー要求
         
         ✅ **CI/CD統合**
         - 自動テスト実行予約
