@@ -1,4 +1,4 @@
-# Flappy Bird Clone
+# Flappy Bird Clone （テスト)
 
 モダンなフロントエンド技術とDevOpsプラクティスを使用した、Flappy Birdのクローンゲームです。
 
